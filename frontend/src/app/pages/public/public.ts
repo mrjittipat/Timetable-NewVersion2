@@ -1,8 +1,8 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { Api } from '../../core/api';
-import { EntityRef, Grid, View } from '../../core/models';
+import { EntityRef, Grid, Term, View } from '../../core/models';
 import { Icon } from '../../shared/icon';
 import { TimetableSheet } from '../timetable/sheet';
 
@@ -25,20 +25,33 @@ import { TimetableSheet } from '../timetable/sheet';
     </header>
 
     <main class="page">
+      <section class="pub-bar card card-body">
+        <div class="row wrap-row">
+          <div class="segmented" role="group" aria-label="เลือกภาคเรียน">
+            <button type="button" [class.active]="effectiveTerm() === '1'" (click)="selectTerm('1')">ภาคเรียนที่ 1</button>
+            <button type="button" [class.active]="effectiveTerm() === '2'" (click)="selectTerm('2')">ภาคเรียนที่ 2</button>
+          </div>
+          @if (info(); as i) {
+            <span class="small muted">แสดงผล: ภาคเรียนที่ {{ i.semester }} ปีการศึกษา {{ i.year }}</span>
+          }
+        </div>
+      </section>
+
       @if (info() && !info()!.enabled) {
         <section class="card card-body empty">
           <app-icon name="calendar" [size]="34" />
-          <h3>ยังไม่มีการเผยแพร่ตารางเรียน</h3>
+          <h3>ยังไม่มีการเผยแพร่ตารางเรียนในภาคเรียนที่ {{ effectiveTerm() }}</h3>
           <p class="muted">ผู้ดูแลระบบปิดการเผยแพร่ตารางสาธารณะไว้ชั่วคราว</p>
         </section>
       } @else if (info() && !info()!.hasTimetable) {
         <section class="card card-body empty">
           <app-icon name="calendar" [size]="34" />
-          <h3>ยังไม่มีการเผยแพร่ตารางเรียน</h3>
+          <h3>ยังไม่มีการเผยแพร่ตารางเรียนในภาคเรียนที่ {{ effectiveTerm() }}</h3>
+          <p class="muted">ลองสลับดูอีกภาคเรียนหรือรอผู้ดูแลระบบจัดตาราง</p>
         </section>
       } @else if (idInput() && viewInput()) {
         <div class="row">
-          <a class="btn sm" routerLink="/p">← กลับหน้าดัชนี</a>
+          <a class="btn sm" routerLink="/p" [queryParams]="{ term: effectiveTerm() }">← กลับหน้าดัชนี</a>
         </div>
         @if (grid(); as g) {
           <section class="card">
@@ -71,7 +84,7 @@ import { TimetableSheet } from '../timetable/sheet';
           </div>
           <div class="card-body cards-grid">
             @for (e of filteredEntities(); track e.id) {
-              <a class="pub-card" [routerLink]="['/p', indexView(), e.id]">
+              <a class="pub-card" [routerLink]="['/p', indexView(), e.id]" [queryParams]="{ term: effectiveTerm() }">
                 <strong>{{ e.title }}</strong>
                 <span class="small muted">{{ e.subtitle }}</span>
               </a>
@@ -99,6 +112,13 @@ import { TimetableSheet } from '../timetable/sheet';
       display: inline-flex;
       align-items: center;
       justify-content: center;
+    }
+    .pub-bar {
+      padding: 10px 14px;
+    }
+    .wrap-row {
+      flex-wrap: wrap;
+      justify-content: space-between;
     }
     .search-box {
       display: flex;
@@ -129,10 +149,27 @@ import { TimetableSheet } from '../timetable/sheet';
 })
 export class PublicPage {
   private readonly api = inject(Api);
+  private readonly router = inject(Router);
   readonly viewInput = input<string>('', { alias: 'view' });
   readonly idInput = input<string>('', { alias: 'id' });
+  readonly termInput = input<string>('', { alias: 'term' });
 
-  readonly info = signal<{ enabled: boolean; college: string; semester: string; year: string; hasTimetable: boolean } | null>(null);
+  readonly selectedTerm = signal<Term | null>(null);
+  readonly effectiveTerm = computed<Term>(() => {
+    const sel = this.selectedTerm();
+    if (sel) return sel;
+    return this.termInput() === '1' ? '1' : '2';
+  });
+
+  readonly info = signal<{
+    term: Term;
+    enabled: boolean;
+    college: string;
+    semester: string;
+    year: string;
+    hasTimetable: boolean;
+    terms: { term: Term; label: string; semester: string; year: string; enabled: boolean; hasTimetable: boolean }[];
+  } | null>(null);
   readonly entities = signal<Record<View, EntityRef[]> | null>(null);
   readonly grid = signal<Grid | null>(null);
   readonly indexView = signal<View>('group');
@@ -152,22 +189,45 @@ export class PublicPage {
 
   constructor() {
     effect(() => {
+      const ti = this.termInput();
+      if (ti === '1' || ti === '2') this.selectedTerm.set(ti);
+    });
+
+    effect(() => {
       const v = this.viewInput();
       const id = this.idInput();
-      void this.load(v, id);
+      const t = this.effectiveTerm();
+      void this.load(v, id, t);
     });
   }
 
-  async load(view: string, id: string) {
+  selectTerm(t: Term) {
+    this.selectedTerm.set(t);
+    this.grid.set(null);
+    void this.router.navigate([], { queryParams: { term: t }, queryParamsHandling: 'merge', replaceUrl: true });
+  }
+
+  async load(view: string, id: string, term: Term) {
     try {
-      const inf = await this.api.getPublicInfo();
+      const inf = await this.api.getPublicInfo(term);
       this.info.set(inf);
-      if (!inf.enabled || !inf.hasTimetable) return;
+      if (!this.termInput() && !this.selectedTerm() && !inf.hasTimetable) {
+        const alt = inf.terms?.find((x) => x.enabled && x.hasTimetable);
+        if (alt && alt.term !== term) {
+          this.selectedTerm.set(alt.term);
+          return;
+        }
+      }
+      if (!inf.enabled || !inf.hasTimetable) {
+        this.grid.set(null);
+        this.entities.set(null);
+        return;
+      }
       if (view && id) {
         const rv: View = view === 'teacher' || view === 'room' ? view : 'group';
-        this.grid.set(await this.api.getPublicGrid(rv, id));
+        this.grid.set(await this.api.getPublicGrid(rv, id, term));
       } else {
-        this.entities.set(await this.api.getPublicEntities());
+        this.entities.set(await this.api.getPublicEntities(term));
       }
     } catch {
       // handled gracefully

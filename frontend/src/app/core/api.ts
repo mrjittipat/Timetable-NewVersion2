@@ -14,15 +14,19 @@ import {
   SavedSeed,
   SolveResponse,
   StatsResponse,
+  Term,
+  TermSummary,
   TimetableResponse,
   User,
   Validation,
   View,
 } from './models';
+import { TermStore } from './term';
 
 @Injectable({ providedIn: 'root' })
 export class Api {
   private readonly http = inject(HttpClient);
+  private readonly termStore = inject(TermStore);
 
   errorMessage(err: unknown): string {
     if (err instanceof HttpErrorResponse) {
@@ -34,6 +38,10 @@ export class Api {
     }
     if (err instanceof Error && err.message) return err.message;
     return 'เกิดข้อผิดพลาดในการเชื่อมต่อ';
+  }
+
+  getTerms() {
+    return firstValueFrom(this.http.get<{ activeTerm: Term; terms: TermSummary[] }>('/api/terms'));
   }
 
   getData() {
@@ -137,18 +145,32 @@ export class Api {
     return firstValueFrom(this.http.get<{ url: string; base: string; enabled: boolean }>('/api/share', { params: { view, id } }));
   }
 
-  getPublicInfo() {
+  getPublicInfo(term?: Term) {
+    const params: Record<string, string> = {};
+    if (term) params['term'] = term;
     return firstValueFrom(
-      this.http.get<{ enabled: boolean; college: string; semester: string; year: string; hasTimetable: boolean }>('/api/public/info')
+      this.http.get<{
+        term: Term;
+        enabled: boolean;
+        college: string;
+        semester: string;
+        year: string;
+        hasTimetable: boolean;
+        terms: { term: Term; label: string; semester: string; year: string; enabled: boolean; hasTimetable: boolean }[];
+      }>('/api/public/info', { params })
     );
   }
 
-  getPublicEntities() {
-    return firstValueFrom(this.http.get<Record<View, EntityRef[]>>('/api/public/entities'));
+  getPublicEntities(term?: Term) {
+    const params: Record<string, string> = {};
+    if (term) params['term'] = term;
+    return firstValueFrom(this.http.get<Record<View, EntityRef[]>>('/api/public/entities', { params }));
   }
 
-  getPublicGrid(view: View, id: string) {
-    return firstValueFrom(this.http.get<Grid>('/api/public/grid', { params: { view, id } }));
+  getPublicGrid(view: View, id: string, term?: Term) {
+    const params: Record<string, string> = { view, id };
+    if (term) params['term'] = term;
+    return firstValueFrom(this.http.get<Grid>('/api/public/grid', { params }));
   }
 
   getDocument() {
@@ -179,8 +201,9 @@ export class Api {
     return firstValueFrom(this.http.post<{ ok: boolean; text: string; refresh?: boolean }>('/api/chat/action', { kind, payload }));
   }
 
-  exportUrl(kind: 'csv' | 'xlsx' | 'pdf' | 'qr-pdf', view?: string, id?: string, inline = false): string {
+  exportUrl(kind: 'csv' | 'xlsx' | 'pdf' | 'qr-pdf', view?: string, id?: string, inline = false, term = this.termStore.term()): string {
     const params = new URLSearchParams();
+    params.set('term', term);
     if (view) params.set('view', view);
     if (id) params.set('id', id);
     if (inline) params.set('inline', '1');

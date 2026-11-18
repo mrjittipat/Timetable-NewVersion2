@@ -525,7 +525,7 @@ Contents: 1 Competition task · 2 Backend foundation · 3 Context · 4 Validator
 
 Thai national vocational AI skills competition (ปวส.). Build an AI timetable scheduler.
 
-### 1.1 Input: 7 files in `CSV/` (derived from `ข้อมูลการสอน.xlsx` ภาคเรียนที่ 2/2569, also importable as CSV or XLSX)
+### 1.1 Input: 7 files in `CSV/` (ภาคเรียนที่ 2/2569) and `CSV/term1/` (ภาคเรียนที่ 1/2570), derived from `ข้อมูลการสอน.xlsx` sheets `2_2569` and `1_2570` (also importable as CSV or multi-sheet XLSX)
 
 | file | fields | notes |
 |---|---|---|
@@ -640,27 +640,25 @@ export const DEFAULT_CONFIG = {
               publicEnabled: true, publicBaseUrl: '' },
 };
 ```
-- File `backend/data/config.json`. `loadConfig()` → merged file or a clone of defaults (also on parse error).
-- `saveConfig(cfg)` writes `mergeConfig(cfg)` (2-space JSON) and returns it.
-- `mergeConfig(cfg = {})` → `{ savedSeeds: array or [], document: {...defaults, ...cfg.document},
+- Per-term config files under `backend/data/terms/{1,2}/config.json` (plus `backend/data/app-state.json` storing `activeTerm: '1'|'2'`, default `'2'`, and legacy `backend/data/config.json` fallback for term `2`). `loadConfig(term)` → merged file or a clone of defaults (`semester: term`, `year: term === '1' ? '2570' : '2569'`).
+- `saveConfig(cfg, term)` writes `mergeConfig(cfg, term)` (2-space JSON) and returns it.
+- `mergeConfig(cfg = {}, term)` → `{ savedSeeds: array or [], document: {...defaults, ...cfg.document},
   constraints: {...defaults.constraints, ...cfg.constraints}, params: {...defaults.params, ...cfg.params} }`
   (also deep-merge any nested constraint parameter objects defined by the user by one level).
 - Saved seed shape: `{ id, name, seed, constraints, params: { maxBlock, timeLimitSec, ...constraintParams }, softCost, savedAt }`.
 
-### 2.5 `services/store.js` (in-memory data backed by files)
-- State: `data` (entity → rows) and `timetable` (`{ rows, meta }` or null).
-- `init()`: mkdir data/output; for each entity, copy the file from `SEED_DIR` if missing in `DATA_DIR`,
-  then read it (`parseCsv` → `normalizeRow` → dedupe by `rowKey`, keeping the first). Load
-  `output/output.csv` (+ `output/meta.json`) if present, normalising rows with `normalizeOutputRow`.
+### 2.5 `services/store.js` (per-term in-memory data backed by files)
+- State: `datasets` & `timetables` Maps keyed by `term` (`'1'` | `'2'`). Seed dirs: `CSV/term1` (term `1`) and `CSV` (term `2`); runtime storage under `backend/data/terms/{1,2}` and `backend/output/terms/{1,2}` (`migrateLegacyTerm2()` moves legacy root CSV/`config.json`/`output.csv`/`meta.json` into `terms/2/` on startup).
+- `init()`: for each term `'1'` and `'2'`, mkdir `terms/{term}` data/output; copy missing CSV files from the term's seed dir; read (`parseCsv` → `normalizeRow` → dedupe by `rowKey`, keeping the first). Load `output.csv` (+ `meta.json`) if present, normalising rows with `normalizeOutputRow`.
 - `normalizeOutputRow(r)`: the 5 output fields as trimmed strings.
-- `getData()`, `getEntity(e)`; `replaceEntity(e, rawRows)` (normalise + dedupe + persist);
+- `getData(term)`, `getEntity(e, term)`; `replaceEntity(e, rawRows, term)` (normalise + dedupe + persist);
   `addRow` (400 `ต้องระบุ <fields>` if a key field is empty; 409 `มีข้อมูลรหัส <key> อยู่แล้ว`);
-  `updateRow(e, key, raw)` (merge, 404 `ไม่พบข้อมูลรหัส <key>`, 409 on a key collision);
-  `deleteRow(e, key)`; every change rewrites the entity CSV.
-- `resetData()`: copy all 7 files from `SEED_DIR` over `DATA_DIR`, then `init()`.
-- `getTimetable()`; `setTimetable(rows, meta)`: normalise, sort by group_id then timeslot_id (both
+  `updateRow(e, key, raw, term)` (merge, 404 `ไม่พบข้อมูลรหัส <key>`, 409 on a key collision);
+  `deleteRow(e, key, term)`; every change rewrites the term's entity CSV.
+- `resetData(term)`: copy all 7 files from the term's seed dir over `DATA_DIR/terms/{term}`, then `init()`.
+- `getTimetable(term)`; `setTimetable(rows, meta, term)`: normalise, sort by group_id then timeslot_id (both
   `localeCompare(..., undefined, { numeric: true })`), set `meta.updatedAt` (ISO), write
-  `output.csv` (`toCsv` with `OUTPUT_FIELDS`) and `meta.json`.
+  `output.csv` (`toCsv` with `OUTPUT_FIELDS`) and `meta.json` inside `OUTPUT_DIR/terms/{term}`.
 - `httpError(status, message)` → Error with `.status`.
 
 ### 2.6 `server.js`
@@ -993,39 +991,41 @@ image, `สแกนเพื่อดูตารางเรียนล่า
   `/chat`. `requireAdmin` for `/users` (403 `เฉพาะผู้ดูแลระบบ`).
 
 ### 9.2 Routes (`routes/api.js`, all under `/api`)
-Async handlers are wrapped so errors reach the error handler. `context()` = `buildContext(getData(), loadConfig())`.
+Async handlers are wrapped so errors reach the error handler. `reqTerm(req)` resolves `?term` / `X-Term` / `body.term` defaulting to `getActiveTerm()`. `context(term)` = `buildContext(getData(term), loadConfig(term))`.
 
 | method & path | behaviour |
 |---|---|
-| GET `/data` | `{ data, schema: ENTITIES, warnings, summary: { teachers, leaders, rooms, groups, subjects, registrations, timeslots, totalPeriods } }` |
+| GET `/terms`, PUT `/term` | list per-term summaries (`1`, `2`, `activeTerm`) / set global `activeTerm` (admin) |
+| GET `/data` | `{ term, data, schema: ENTITIES, warnings, summary: { teachers, leaders, rooms, groups, subjects, registrations, timeslots, totalPeriods } }` |
 | GET `/data/:entity` | rows (404 unknown entity) |
-| POST `/data/reset` | `resetData()` |
+| POST `/data/reset` | `resetData(term)` |
 | POST/PUT/DELETE `/data/:entity[/:key]` | add (201) / update / delete a row |
-| POST `/import` | multer memory, field `files` (≤ 20, 10 MB). Filenames decoded latin1→utf8. `.xlsx`: each sheet whose name is an entity (or the single sheet named by the file) replaces that entity; also supports workbook format of `ข้อมูลการสอน.xlsx` (sheets `2_2569`/`1_2570`, `ครูผู้สอน`, `ห้องเรียน`). `.csv`: entity from filename, 400 if a key column is missing. Returns `{ imported: [{file, entity, rows}], skipped, warnings }` |
-| GET/PUT `/config` | `{ config, defaults }` / save (keeps the stored `savedSeeds`) |
+| POST `/import` | multer memory, field `files` (≤ 20, 10 MB). Filenames decoded latin1→utf8. `.xlsx`: each sheet whose name is an entity (or the single sheet named by the file) replaces that entity; also supports multi-sheet workbook format of `ข้อมูลการสอน.xlsx` (`1_2570` → term `1`, `2_2569` → term `2`, plus `ครูผู้สอน`, `ห้องเรียน`). `.csv`: entity from filename, 400 if a key column is missing. Returns `{ imported: [{file, entity, rows, term?}], skipped, warnings }` |
+| GET/PUT `/config` | `{ term, config, defaults }` / save for `term` (keeps the stored `savedSeeds`) |
 | GET/POST/DELETE `/seeds[/:id]` | list / add (409 if the same seed+constraints+params exists; id = base36 time + 4 random chars; name ≤ 80, default `Seed <n>`) / delete |
-| POST `/solve` | body may override `constraints`, `params`, `document` (saved to config). Run the worker; on success validate and `setTimetable(rows, { stats, validationPassed, source: 'solver' })`. Returns `{ ...result, validation, log }` |
+| POST `/solve` | body may override `constraints`, `params`, `document` (saved to config for `term`). Run the worker; on success validate and `setTimetable(rows, { stats, validationPassed, source: 'solver' }, term)`. Returns `{ ...result, term, validation, log }` |
 | POST `/diagnose` | worker `diagnose` with `probeSeconds: 4` |
-| POST `/solve/best` | `count` clamped 2–60 (default 20). Worker `best`. On success set `params.seed` to the best seed, save config, validate, store with `bestOf`. Returns `{ status, message: 'seed ที่ดีที่สุดคือ <n>', best: { seed, softCost }, results, seconds, validation }` |
+| POST `/solve/best` | `count` clamped 2–60 (default 20). Worker `best`. On success set `params.seed` to the best seed, save config, validate, store with `bestOf`. Returns `{ status, message: 'seed ที่ดีที่สุดคือ <n>', best: { seed, softCost }, results, seconds, validation, term }` |
 | GET `/stats` | `timetableStats` |
 | GET `/auth/me` | `{ user, defaultPassword, defaultAdmin }` (`defaultAdmin` = credentials only while the default password is still active) |
 | POST `/auth/login` `/auth/logout` `/auth/password`; PUT `/auth/profile` | as above |
 | GET/POST/PUT/DELETE `/users[/:username]` | admin CRUD |
-| GET `/public/info` | `{ enabled, college, semester, year, hasTimetable }` (always open) |
-| GET `/public/entities`, `/public/grid?view&id`, `/public/qr?view&id` (SVG) | 403 `ผู้ดูแลระบบปิดการเผยแพร่ตารางสาธารณะ` when `publicEnabled` is false |
-| GET `/share?view&id` | `{ url, base, enabled }`; public URL = `<publicBaseUrl or request origin>/p/<view>/<id>` |
-| GET `/export/qr-pdf?view&inline` | QR card PDF for every entity of the view |
-| GET `/timetable` | `{ rows, meta, validation }` (empty when none) |
+| GET `/public/terms` | list `{ term, label, semester, year, hasTimetable, updatedAt, validationPassed, periodCount }` for term `1` and `2` (always open) |
+| GET `/public/info` | `{ term, activeTerm, terms, enabled, college, semester, year, hasTimetable }` (always open) |
+| GET `/public/entities`, `/public/grid?view&id&term`, `/public/qr?view&id&term` (SVG) | 403 `ผู้ดูแลระบบปิดการเผยแพร่ตารางสาธารณะ` when `publicEnabled` is false |
+| GET `/share?view&id&term` | `{ url, base, enabled, term }`; public URL = `<publicBaseUrl or request origin>/p/<view>/<id>?term=<term>` |
+| GET `/export/qr-pdf?view&inline&term` | QR card PDF for every entity of the view |
+| GET `/timetable` | `{ term, rows, meta, validation }` (empty when none) |
 | PUT `/timetable` | save given rows (source `manual`), validate, return with validation |
 | POST `/timetable/validate`, `/timetable/move`, `/timetable/edit` | validate rows / `moveSpan` / `editSpan` then save as `manual` |
 | GET `/timetable/entities` | `{ group: [...], teacher: [...], room: [...] }` from `entitiesFor` |
-| GET `/timetable/grid?view&id` | `{ entity, ...grid }` (first entity if id unknown) |
-| GET `/timetable/grids?view` | every grid of the view ("show all") |
+| GET `/timetable/grid?view&id&term` | `{ entity, ...grid }` (first entity if id unknown) |
+| GET `/timetable/grids?view&term` | every grid of the view ("show all") |
 | GET `/document` | `config.document` |
 | GET `/export/csv` | `output.csv` attachment |
-| GET `/export/xlsx?view&id` | `timetable-<view>[-<id>].xlsx` |
-| GET `/export/pdf?view&id&inline` | `Content-Disposition` inline when `inline` is set (for the preview) |
-| POST `/chat` | `{ message (≤ 500), context }` → `reply(...)` (§11) |
+| GET `/export/xlsx?view&id&term` | `timetable-<view>[-<id>].xlsx` |
+| GET `/export/pdf?view&id&inline&term` | `Content-Disposition` inline when `inline` is set (for the preview) |
+| POST `/chat` | `{ message (≤ 500), context }` → `reply(...)` (§11, detects term hints such as `เทอม 1`/`ภาคเรียนที่ 1`) |
 | POST `/chat/action` | `{ kind, payload }`: `solve`, `move`, `diagnose`, `best_seed`, `save_seed` (run, store, answer `{ ok, text, refresh? }`) |
 
 Export routes without a timetable → 404 `ยังไม่มีตารางเรียน กรุณากดจัดตารางก่อน`.
@@ -1035,7 +1035,7 @@ Export routes without a timetable → 404 `ยังไม่มีตารา�
 ## 10. Frontend (Angular)
 
 `ng new frontend --style=scss --skip-tests --ssr=false`, standalone, `provideHttpClient(withFetch(),
-withInterceptors([authInterceptor]))`, `provideRouter(routes, withComponentInputBinding())`.
+withInterceptors([authInterceptor, termInterceptor]))`, `provideRouter(routes, withComponentInputBinding())`.
 `index.html`: `lang="th"`, title `วิทยาลัยเทคนิคพังงา · ระบบจัดตารางเรียนอัตโนมัติ`, theme-color `#800020`,
 Google Font IBM Plex Sans Thai 400/500/600/700. Dev server proxies `/api` (`proxy.conf.json`, Part D.5;
 set `"proxyConfig"` in angular.json serve options). Page titles: `<page> · วิทยาลัยเทคนิคพังงา`.
@@ -1108,11 +1108,12 @@ All pages are lazy (`loadComponent`). The root `App` holds `<router-outlet>`, `<
   with a calendar icon + `วิทยาลัยเทคนิคพังงา` / `ระบบจัดตารางเรียนอัตโนมัติ`); nav links with icons:
   ภาพรวม (dashboard, `/`, exact), จัดการข้อมูล (database), จัดตารางอัตโนมัติ (sparkles), ตารางเรียน (calendar),
   สรุปภาระสอนครู (users, `/teacher-summary`), ผลตรวจเงื่อนไข (shield), ส่งออกไฟล์ (download). Active link = white background, maroon text.
-  At the bottom a translucent status card linking to `/report`: label `สถานะตารางล่าสุด`, then one of
+  At the bottom a translucent status card linking to `/report`: label `สถานะตารางล่าสุด · ภาค <1|2>`, then one of
   `ยังไม่ได้จัดตาราง` / `กดจัดตารางอัตโนมัติเพื่อเริ่ม`, `ผ่านทุกเงื่อนไข` / `<n> คาบในตาราง`,
   `มีเงื่อนไขไม่ผ่าน` / `ดูรายละเอียดที่ผลตรวจเงื่อนไข`. On narrow screens the sidebar slides in from a menu button.
-- **Top bar**: menu button (mobile), title `ระบบจัดตารางเรียนด้วยอัลกอริทึมปัญญาประดิษฐ์`, button
-  `โหลดข้อมูลใหม่` (refresh), then the profile button (avatar 32 + name + role + chevron). The profile
+- **Top bar**: menu button (mobile), title `ระบบจัดตารางเรียนด้วยอัลกอริทึมปัญญาประดิษฐ์`, segmented
+  semester toggle (`ภาคเรียนที่ 1` / `ภาคเรียนที่ 2`), button `โหลดข้อมูลใหม่` (refresh), then the profile
+  button (avatar 32 + name + role + chevron). The profile
   dropdown shows avatar 40, name, `username · role`, then exactly two items: `ตั้งค่า` (→ `/settings`) and
   `ออกจากระบบ` (red).
 - Banners: if `mustChangePassword` → warning `บัญชีนี้ยังใช้รหัสผ่านเริ่มต้นหรือรหัสที่ผู้ดูแลตั้งให้
@@ -1185,9 +1186,9 @@ theory `ทฤษฎี (คาบ)`, practice `ปฏิบัติ (คาบ
   in a `<details>`).
 - Changing a switch or parameter updates the config sent with the next solve.
 
-**Timetable** (`/timetable`, query `view` and `id`): eyebrow `ขั้นตอนที่ 3`, h1 `ตารางเรียน`; actions
+**Timetable** (`/timetable`, query `view`, `id`, and `term`): eyebrow `ขั้นตอนที่ 3 · <termLabel>`, h1 `ตารางเรียน`; actions
 `ย้อนกลับ (<n>)` (admin, up to 20 steps), `แชร์ / QR`, `Excel`, primary `PDF / พิมพ์` (opens the PDF preview).
-- Controls card: segmented view (กลุ่มเรียน / ครูผู้สอน / ห้องเรียน), prev/next buttons and a select whose
+- Controls card: segmented semester toggle (`ภาคเรียนที่ 1` / `ภาคเรียนที่ 2`), segmented view (กลุ่มเรียน / ครูผู้สอน / ห้องเรียน), prev/next buttons and a select whose
   first option is `— แสดงทั้งหมด (ทุกกลุ่มเรียน|ครูทุกคน|ทุกห้อง) —`, then the badge `ผ่านทุกเงื่อนไข` or
   `ไม่ผ่าน <n> เงื่อนไข`.
 - Seed bar: `Seed ที่ใช้สร้างตารางนี้` + seed, facts (เงื่อนไขพิเศษ, คาบติดกันสูงสุด, คาบสูงสุด/วัน, Soft cost),
@@ -1206,7 +1207,7 @@ theory `ทฤษฎี (คาบ)`, practice `ปฏิบัติ (คาบ
 - Share dialog: QR (from `/api/public/qr`), public URL with `คัดลอก`, a warning when publishing is off or the
   URL is localhost, buttons `เปิดดู` and `พิมพ์ QR ทุก<view>`.
 
-**TeacherSummary** (`/teacher-summary`, ข้อ 6): eyebrow `สรุปภาระงานสอนรายบุคคล`, h1 `ข้อมูลสรุปการสอนของครูรายบุคคล`.
+**TeacherSummary** (`/teacher-summary`, ข้อ 6): eyebrow `สรุปภาระงานสอนรายบุคคล · <termLabel>`, h1 `ข้อมูลสรุปการสอนของครูรายบุคคล`, with segmented semester toggle (`ภาคเรียนที่ 1` / `ภาคเรียนที่ 2`) in the header actions.
 - Summary KPI row + filter/search by teacher or department (`ทั้งหมด`, `เทคโนโลยีสารสนเทศ`, `เทคโนโลยีธุรกิจดิจิทัล`) + table/cards per teacher showing:
   - ครูผู้สอน (รหัส, ชื่อ, ตำแหน่ง Leader/Teacher + หน้าที่พิเศษ, สาขาวิชา)
   - ผลรวม ทฤษฎี (`ท.`), ปฏิบัติ (`ป.`), หน่วยกิต (`น.`)
@@ -1233,9 +1234,9 @@ basic, special) listing each check as an expandable row (number, name, status ba
   `สร้างบัญชีครูที่ยังไม่มี (<n>)`: one `teacher` account per teacher without one (username = teacher id
   lowercased, random temporary password shown once in a dialog with `คัดลอกทั้งหมด`).
 
-**Public** (`/p`, `/p/:view/:id`, no login): a slim maroon header with the college and `เข้าสู่ระบบ`;
-index = segmented view + search + cards linking to each timetable; view = the read-only sheet with the
-title and last update time. Show `ยังไม่มีการเผยแพร่ตารางเรียน` when disabled.
+**Public** (`/p`, `/p/:view/:id`, query `term`, no login): a slim maroon header with the college and `เข้าสู่ระบบ`;
+index = segmented semester toggle (`ภาคเรียนที่ 1` / `ภาคเรียนที่ 2`) + segmented view + search + cards linking to each timetable; view = the read-only sheet with the
+title and last update time (auto-falling back to the published term if the default term has no timetable yet). Show `ยังไม่มีการเผยแพร่ตารางเรียน` when disabled.
 
 ### 10.6 Shared components (`src/app/shared`)
 - `Icon` (`app-icon`, inputs `name`, `size` default 20): inline Lucide 24×24 paths, stroke 2, `currentColor`,

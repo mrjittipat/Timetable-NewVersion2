@@ -52,4 +52,19 @@ if (a.status === 'success' && b.status === 'success' && c.status === 'success' &
   console.log(`FAIL determinism: seed42=${ha}, seed42_2=${hb}, seed99=${hc}`);
 }
 
+if (runAll) {
+  const t1Data = store.getData('1');
+  const t1Cfg = mergeConfig(loadConfig('1'), '1');
+  const t1Res = solve(t1Data, t1Cfg);
+  const t1Val = t1Res.status === 'success' ? validate(t1Res.rows, t1Data, t1Cfg) : null;
+  if (t1Res.status === 'success' && t1Val?.passed) {
+    console.log(
+      `PASS term1-all-on (S1+S2+S3): rows=${t1Res.rows.length}, restarts=${t1Res.stats.restarts}, cost=${t1Res.stats.softCostBefore}->${t1Res.stats.softCostAfter}, time=${t1Res.stats.seconds}s`
+    );
+  } else {
+    failed++;
+    console.log('FAIL term1-all-on:', t1Res.message, t1Res.errors);
+  }
+}
+
 if (failed > 0) process.exit(1);

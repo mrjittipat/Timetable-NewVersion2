@@ -2,6 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './paths.js';
 
+export const TERMS = ['1', '2'];
+
+export function normalizeTerm(term) {
+  return String(term ?? '').trim() === '1' ? '1' : '2';
+}
+
 export const DEFAULT_CONFIG = {
   constraints: {
     S1: true,
@@ -33,31 +39,79 @@ export const DEFAULT_CONFIG = {
   },
 };
 
-const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
+const TERM_DOC_DEFAULTS = {
+  '1': { semester: '1', year: '2570' },
+  '2': { semester: '2', year: '2569' },
+};
 
-export function mergeConfig(cfg = {}) {
+const STATE_PATH = path.join(DATA_DIR, 'app-state.json');
+let activeTermCache = null;
+
+export function getActiveTerm() {
+  if (activeTermCache) return activeTermCache;
+  try {
+    if (fs.existsSync(STATE_PATH)) {
+      const parsed = JSON.parse(fs.readFileSync(STATE_PATH, 'utf8'));
+      if (parsed?.activeTerm) {
+        activeTermCache = normalizeTerm(parsed.activeTerm);
+        return activeTermCache;
+      }
+    }
+  } catch {
+    // fallback to default
+  }
+  activeTermCache = '2';
+  return activeTermCache;
+}
+
+export function setActiveTerm(term) {
+  const next = normalizeTerm(term);
+  activeTermCache = next;
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(STATE_PATH, JSON.stringify({ activeTerm: next }, null, 2), 'utf8');
+  return next;
+}
+
+export function termConfigPath(term = getActiveTerm()) {
+  const t = normalizeTerm(term);
+  return path.join(DATA_DIR, 'terms', t, 'config.json');
+}
+
+export function mergeConfig(cfg = {}, term = null) {
   const safe = cfg && typeof cfg === 'object' ? cfg : {};
+  const tDoc = term ? TERM_DOC_DEFAULTS[normalizeTerm(term)] || {} : {};
   return {
     savedSeeds: Array.isArray(safe.savedSeeds) ? safe.savedSeeds : [],
     constraints: { ...DEFAULT_CONFIG.constraints, ...(safe.constraints || {}) },
     params: { ...DEFAULT_CONFIG.params, ...(safe.params || {}) },
-    document: { ...DEFAULT_CONFIG.document, ...(safe.document || {}) },
+    document: { ...DEFAULT_CONFIG.document, ...tDoc, ...(safe.document || {}) },
   };
 }
 
-export function loadConfig() {
+export function loadConfig(term = getActiveTerm()) {
+  const t = normalizeTerm(term);
+  const cfgPath = termConfigPath(t);
+  const legacyPath = path.join(DATA_DIR, 'config.json');
   try {
-    if (!fs.existsSync(CONFIG_PATH)) return mergeConfig();
-    const parsed = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    return mergeConfig(parsed);
+    if (fs.existsSync(cfgPath)) {
+      const parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+      return mergeConfig(parsed, t);
+    }
+    if (t === '2' && fs.existsSync(legacyPath)) {
+      const parsed = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
+      return mergeConfig(parsed, t);
+    }
+    return mergeConfig({}, t);
   } catch {
-    return mergeConfig();
+    return mergeConfig({}, t);
   }
 }
 
-export function saveConfig(cfg) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  const merged = mergeConfig(cfg);
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2), 'utf8');
+export function saveConfig(cfg, term = getActiveTerm()) {
+  const t = normalizeTerm(term);
+  const cfgPath = termConfigPath(t);
+  fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
+  const merged = mergeConfig(cfg, t);
+  fs.writeFileSync(cfgPath, JSON.stringify(merged, null, 2), 'utf8');
   return merged;
 }

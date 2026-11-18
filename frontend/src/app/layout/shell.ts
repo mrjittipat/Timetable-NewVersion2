@@ -52,7 +52,7 @@ import { Icon } from '../shared/icon';
         </nav>
 
         <a class="status-card" routerLink="/report" (click)="menuOpen.set(false)">
-          <span class="st-label">สถานะตารางล่าสุด</span>
+          <span class="st-label">สถานะตารางล่าสุด · ภาค {{ state.term() }}</span>
           @if (!state.hasTimetable()) {
             <strong>ยังไม่ได้จัดตาราง</strong>
             <span class="st-sub">กดจัดตารางอัตโนมัติเพื่อเริ่ม</span>
@@ -77,6 +77,14 @@ import { Icon } from '../shared/icon';
           </button>
           <span class="top-title">ระบบจัดตารางเรียนด้วยอัลกอริทึมปัญญาประดิษฐ์</span>
           <span class="spacer"></span>
+          <div class="segmented term-switch" role="group" aria-label="เลือกภาคเรียน">
+            <button type="button" [class.active]="state.term() === '1'" (click)="switchTerm('1')" [disabled]="state.loading()">
+              ภาคเรียนที่ 1
+            </button>
+            <button type="button" [class.active]="state.term() === '2'" (click)="switchTerm('2')" [disabled]="state.loading()">
+              ภาคเรียนที่ 2
+            </button>
+          </div>
           <button type="button" class="btn sm" (click)="reload()" [disabled]="state.loading()">
             <app-icon name="refresh" [size]="16" /> โหลดข้อมูลใหม่
           </button>
@@ -378,6 +386,16 @@ export class Shell implements OnInit {
     try {
       await this.state.refresh();
       if (!silent) this.toasts.success('โหลดข้อมูลล่าสุดเรียบร้อย');
+    } catch (err) {
+      this.toasts.error(this.api.errorMessage(err));
+    }
+  }
+
+  async switchTerm(t: '1' | '2') {
+    if (this.state.term() === t || this.state.loading()) return;
+    try {
+      await this.state.setTerm(t);
+      this.toasts.info(`สลับเป็นภาคเรียนที่ ${t} แล้ว`);
     } catch (err) {
       this.toasts.error(this.api.errorMessage(err));
     }

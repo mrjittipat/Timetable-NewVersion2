@@ -14,12 +14,16 @@ import { Icon } from '../../shared/icon';
     <div class="page">
       <header class="page-head">
         <div>
-          <div class="eyebrow">สรุปภาระงานสอนรายบุคคล</div>
+          <div class="eyebrow">สรุปภาระงานสอนรายบุคคล · {{ state.termLabel() }}</div>
           <h1>ข้อมูลสรุปการสอนของครูรายบุคคล</h1>
           <p class="muted">แสดงจำนวน ทฤษฎี ปฏิบัติ หน่วยกิต คาบรวม ปวช. คาบรวม ปวส. และคาบรวมทั้งหมด (นับตามเวลาจริง)</p>
         </div>
         <div class="actions">
-          <a class="btn" routerLink="/timetable" [queryParams]="{ view: 'teacher' }">
+          <div class="segmented" role="group" aria-label="เลือกภาคเรียน">
+            <button type="button" [class.active]="state.term() === '1'" (click)="state.setTerm('1')" [disabled]="state.loading()">ภาคเรียนที่ 1</button>
+            <button type="button" [class.active]="state.term() === '2'" (click)="state.setTerm('2')" [disabled]="state.loading()">ภาคเรียนที่ 2</button>
+          </div>
+          <a class="btn" routerLink="/timetable" [queryParams]="{ view: 'teacher', term: state.term() }">
             <app-icon name="calendar" [size]="16" /> ดูตารางสอนครู
           </a>
         </div>

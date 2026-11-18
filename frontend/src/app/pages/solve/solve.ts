@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Api } from '../../core/api';
@@ -32,7 +32,7 @@ const BASIC_DEFS = [
     <div class="page">
       <header class="page-head">
         <div>
-          <div class="eyebrow">ขั้นตอนที่ 2</div>
+          <div class="eyebrow">ขั้นตอนที่ 2 · {{ state.termLabel() }}</div>
           <h1>จัดตารางอัตโนมัติ</h1>
           <p class="muted">ตั้งค่าเงื่อนไขพิเศษ พารามิเตอร์อัลกอริทึม และค้นหา Seed ที่ดีที่สุด</p>
         </div>
@@ -572,10 +572,10 @@ const BASIC_DEFS = [
     }
   `,
 })
-export class SolvePage implements OnInit, OnDestroy {
+export class SolvePage implements OnDestroy {
   readonly auth = inject(AuthService);
+  readonly state = inject(AppState);
   private readonly api = inject(Api);
-  private readonly state = inject(AppState);
   private readonly toasts = inject(Toasts);
   private readonly confirm = inject(Confirm);
 
@@ -600,7 +600,17 @@ export class SolvePage implements OnInit, OnDestroy {
     return SPECIAL_DEFS.filter((d) => c[d.id]).length;
   });
 
-  async ngOnInit() {
+  constructor() {
+    effect(() => {
+      this.state.term();
+      this.solveResult.set(null);
+      this.bestResult.set(null);
+      this.diagResult.set(null);
+      void this.loadConfig();
+    });
+  }
+
+  async loadConfig() {
     try {
       const res = await this.api.getConfig();
       this.cfg.set(res.config);

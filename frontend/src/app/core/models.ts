@@ -1,5 +1,21 @@
 export type View = 'group' | 'teacher' | 'room';
 export type Role = 'admin' | 'teacher' | 'viewer';
+export type Term = '1' | '2';
+
+export interface TermSummary {
+  term: Term;
+  label: string;
+  semester: string;
+  year: string;
+  publicEnabled: boolean;
+  hasTimetable: boolean;
+  validationPassed: boolean;
+  rowCount: number;
+  updatedAt: string | null;
+  seed: number;
+  subjects: number;
+  registrations: number;
+}
 
 export interface User {
   username: string;

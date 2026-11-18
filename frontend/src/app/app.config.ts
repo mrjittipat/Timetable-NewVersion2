@@ -3,6 +3,7 @@ import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/
 import { Title } from '@angular/platform-browser';
 import { RouterStateSnapshot, TitleStrategy, provideRouter, withComponentInputBinding } from '@angular/router';
 import { authInterceptor } from './core/auth';
+import { termInterceptor } from './core/term';
 import { routes } from './app.routes';
 
 @Injectable()
@@ -18,7 +19,7 @@ class ThaiTitleStrategy extends TitleStrategy {
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    provideHttpClient(withFetch(), withInterceptors([authInterceptor])),
+    provideHttpClient(withFetch(), withInterceptors([authInterceptor, termInterceptor])),
     provideRouter(routes, withComponentInputBinding()),
     { provide: TitleStrategy, useClass: ThaiTitleStrategy },
   ],

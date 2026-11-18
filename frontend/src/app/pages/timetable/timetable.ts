@@ -4,7 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 import { Api } from '../../core/api';
 import { AuthService } from '../../core/auth';
 import { Confirm } from '../../core/confirm';
-import { EntityRef, Grid, GridSpan, OutputRow, View } from '../../core/models';
+import { EntityRef, Grid, GridSpan, OutputRow, Term, View } from '../../core/models';
 import { AppState } from '../../core/state';
 import { Toasts } from '../../core/toast';
 import { Icon } from '../../shared/icon';
@@ -19,7 +19,7 @@ import { SpanDropEvent, SpanSelectEvent, TimetableSheet } from './sheet';
     <div class="page">
       <header class="page-head">
         <div>
-          <div class="eyebrow">ขั้นตอนที่ 3</div>
+          <div class="eyebrow">ขั้นตอนที่ 3 · {{ state.termLabel() }}</div>
           <h1>ตารางเรียน</h1>
           <p class="muted">ตรวจสอบ ย้าย/สลับคาบเรียนด้วยตนเอง และส่งออกเป็นเอกสาร</p>
         </div>
@@ -44,6 +44,11 @@ import { SpanDropEvent, SpanSelectEvent, TimetableSheet } from './sheet';
       <!-- Controls -->
       <section class="card">
         <div class="card-body ctrl-row">
+          <div class="segmented" role="group" aria-label="เลือกภาคเรียน">
+            <button type="button" [class.active]="state.term() === '1'" (click)="switchTerm('1')" [disabled]="state.loading()">ภาคเรียนที่ 1</button>
+            <button type="button" [class.active]="state.term() === '2'" (click)="switchTerm('2')" [disabled]="state.loading()">ภาคเรียนที่ 2</button>
+          </div>
+
           <div class="segmented">
             <button type="button" [class.active]="curView() === 'group'" (click)="switchView('group')">กลุ่มเรียน</button>
             <button type="button" [class.active]="curView() === 'teacher'" (click)="switchView('teacher')">ครูผู้สอน</button>
@@ -108,8 +113,8 @@ import { SpanDropEvent, SpanSelectEvent, TimetableSheet } from './sheet';
       } @else if (!state.hasTimetable()) {
         <section class="card card-body empty">
           <app-icon name="calendar" [size]="34" />
-          <h3>ยังไม่มีตารางเรียนในระบบ</h3>
-          <p class="muted">ไปที่หน้าจัดตารางอัตโนมัติเพื่อสร้างตารางเรียนใหม่</p>
+          <h3>ยังไม่มีตารางเรียนใน{{ state.termLabel() }}</h3>
+          <p class="muted">ไปที่หน้าจัดตารางอัตโนมัติเพื่อสร้างตารางเรียนสำหรับ{{ state.termLabel() }}</p>
           <a class="btn primary" routerLink="/solve">ไปหน้าจัดตารางอัตโนมัติ</a>
         </section>
       } @else {
@@ -337,6 +342,7 @@ export class TimetablePage {
 
   readonly viewInput = input<string>('', { alias: 'view' });
   readonly idInput = input<string>('', { alias: 'id' });
+  readonly termInput = input<string>('', { alias: 'term' });
 
   readonly curView = signal<View>('group');
   readonly curId = signal<string>('');
@@ -400,6 +406,13 @@ export class TimetablePage {
 
   constructor() {
     effect(() => {
+      const ti = this.termInput();
+      if ((ti === '1' || ti === '2') && ti !== this.state.term()) {
+        void this.state.setTerm(ti);
+      }
+    });
+
+    effect(() => {
       const vi = this.viewInput();
       const ii = this.idInput();
       const v: View = vi === 'teacher' || vi === 'room' ? vi : 'group';
@@ -461,6 +474,12 @@ export class TimetablePage {
     } catch (err) {
       this.toasts.error(this.api.errorMessage(err));
     }
+  }
+
+  async switchTerm(t: Term) {
+    if (this.state.term() === t || this.state.loading()) return;
+    await this.state.setTerm(t);
+    void this.router.navigate([], { queryParams: { term: t }, queryParamsHandling: 'merge', replaceUrl: true });
   }
 
   switchView(v: View) {
@@ -624,7 +643,7 @@ export class TimetablePage {
   }
 
   qrImgUrl() {
-    return `/api/public/qr?view=${encodeURIComponent(this.curView())}&id=${encodeURIComponent(this.effectiveId())}`;
+    return `/api/public/qr?view=${encodeURIComponent(this.curView())}&id=${encodeURIComponent(this.effectiveId())}&term=${encodeURIComponent(this.state.term())}`;
   }
 
   async copyShareUrl(url: string) {

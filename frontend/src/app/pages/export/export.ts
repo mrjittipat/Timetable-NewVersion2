@@ -13,7 +13,7 @@ import { PdfPreview } from '../../shared/pdf-preview';
     <div class="page">
       <header class="page-head">
         <div>
-          <div class="eyebrow">ขั้นตอนที่ 4</div>
+          <div class="eyebrow">ขั้นตอนที่ 4 · {{ state.termLabel() }}</div>
           <h1>ส่งออกไฟล์</h1>
           <p class="muted">ดาวน์โหลดผลตารางเรียนเป็น CSV, Excel, PDF แบบฟอร์มวิทยาลัย และ QR Code</p>
         </div>
@@ -85,7 +85,7 @@ import { PdfPreview } from '../../shared/pdf-preview';
                 <button type="button" class="btn sm" (click)="openQrPdf('group')">QR กลุ่มเรียน</button>
                 <button type="button" class="btn sm" (click)="openQrPdf('teacher')">QR ครูผู้สอน</button>
                 <button type="button" class="btn sm" (click)="openQrPdf('room')">QR ห้องเรียน</button>
-                <a class="btn primary sm" routerLink="/p">เปิดหน้าตารางสาธารณะ</a>
+                <a class="btn primary sm" routerLink="/p" [queryParams]="{ term: state.term() }">เปิดหน้าตารางสาธารณะ</a>
               </div>
             </div>
           </div>

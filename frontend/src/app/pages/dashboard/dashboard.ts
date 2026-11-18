@@ -14,7 +14,7 @@ import { DashboardCharts } from './charts';
     <div class="page">
       <header class="page-head">
         <div>
-          <div class="eyebrow">วิทยาลัยเทคนิคพังงา</div>
+          <div class="eyebrow">วิทยาลัยเทคนิคพังงา · {{ state.termLabel() }}</div>
           <h1>ระบบจัดตารางเรียนอัตโนมัติ</h1>
           <p class="muted">ภาพรวมข้อมูลตั้งต้น ภาระสอนครู และผลตรวจเงื่อนไขล่าสุด</p>
         </div>
