@@ -1,0 +1,15 @@
+services:
+  timetable:
+    build: .
+    image: timetable-ai:latest
+    container_name: timetable-ai
+    ports:
+      - "3000:3000"
+    volumes:
+      - timetable-data:/app/backend/data
+      - timetable-output:/app/backend/output
+    restart: unless-stopped
+
+volumes:
+  timetable-data:
+  timetable-output:
