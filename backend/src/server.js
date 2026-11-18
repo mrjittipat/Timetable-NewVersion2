@@ -3,9 +3,11 @@ import path from 'node:path';
 import express from 'express';
 import { FRONTEND_DIST } from './services/paths.js';
 import * as store from './services/store.js';
+import { initAuth, guard } from './services/auth.js';
 import api from './routes/api.js';
 
 store.init();
+initAuth();
 
 const app = express();
 app.set('trust proxy', true);
@@ -15,7 +17,7 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-app.use('/api', api);
+app.use('/api', guard, api);
 
 if (fs.existsSync(FRONTEND_DIST)) {
   app.use(express.static(FRONTEND_DIST));
