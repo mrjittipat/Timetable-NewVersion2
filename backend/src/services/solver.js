@@ -11,7 +11,18 @@ function mulberry32(seed) {
   };
 }
 
-function splitHours(h, maxBlock) {
+function splitHours(h, maxBlock, checkS3 = false) {
+  if (checkS3) {
+    const cap = Math.min(2, Math.max(1, maxBlock));
+    const lens = [];
+    let rem = h;
+    while (rem > 0) {
+      const take = Math.min(cap, rem);
+      lens.push(take);
+      rem -= take;
+    }
+    return lens;
+  }
   const n = Math.ceil(h / Math.max(1, maxBlock));
   const base = Math.floor(h / n);
   const rem = h % n;
@@ -27,6 +38,7 @@ export function buildBlocks(ctx) {
   if (errors.length > 0) return { errors, courses: [], blocks: [] };
 
   const maxBlock = Math.max(1, Number(ctx.params.maxBlock) || 4);
+  const checkS3 = Boolean(ctx.constraints.S3);
   const courses = [];
   const blocks = [];
   const handled = new Set();
@@ -43,7 +55,7 @@ export function buildBlocks(ctx) {
     }
     const course = { id: courses.length, subjectId, groups, hours, teachers, rooms, kind, subByGroup, blockIds: [] };
     courses.push(course);
-    const lens = fixed ? [hours] : splitHours(hours, maxBlock);
+    const lens = fixed ? [hours] : splitHours(hours, maxBlock, checkS3);
     for (const len of lens) {
       const block = { id: blocks.length, course, len, fixed };
       blocks.push(block);
@@ -133,6 +145,10 @@ class Board {
     this.daySlotIdx = ctx.daySlots.map((arr) => arr.map((id) => this.sIdx.get(id)));
     this.slotPeriods = this.slotList.map((id) => ctx.slotsById.get(id).period);
     this.slotPeriodMap = new Map(this.slotList.map((id, i) => [id, this.slotPeriods[i]]));
+    this.breakPeriod = Number(ctx.params.breakPeriod) || 6;
+    this.morningCount = this.daySlotIdx.map(
+      (ds) => ds.filter((si) => this.slotPeriods[si] < this.breakPeriod).length
+    );
 
     this.tDept = this.teacherList.map((id) => ctx.teachers.get(id)?.department || '');
     this.tIsIt = this.teacherList.map((id) => (ctx.teachers.get(id)?.department || '').includes('เทคโนโลยีสารสนเทศ'));
@@ -141,6 +157,7 @@ class Board {
     this.tMax = this.teacherList.map((id) => ctx.teacherBounds(id).max);
     this.tIsWutthiwong = this.teacherList.map((id) => ctx.isWutthiwong(id));
     this.gDept = this.groupList.map((id) => ctx.groupMeta(id).department);
+    this.gIsItPvs = this.groupList.map((id) => ctx.groupMeta(id).isItPvs);
 
     for (const c of this.courses) {
       c.gIdxs = c.groups.map((id) => this.gIdx.get(id));
@@ -158,6 +175,7 @@ class Board {
     this.teacherOcc = new Int32Array(this.T * this.S);
     this.roomOcc = new Int32Array(this.R * this.S);
     this.dayLoad = new Int32Array(this.G * this.D);
+    this.groupTotalRem = new Int32Array(this.G);
     this.teacherLoad = new Int32Array(this.T);
 
     this.place = Array(blocks.length).fill(null);
@@ -174,7 +192,7 @@ class Board {
     this.checkS2 = Boolean(ctx.constraints.S2);
     this.checkS3 = Boolean(ctx.constraints.S3);
     this.maxPerDay = Number(ctx.params.maxPerDay) || 8;
-    this.latestPreferred = Number(ctx.params.latestPreferredPeriod) || 9;
+    this.latestPreferred = Number(ctx.params.latestPreferredPeriod) || 10;
 
     this.clear();
   }
@@ -184,6 +202,13 @@ class Board {
     this.teacherOcc.fill(-1);
     this.roomOcc.fill(-1);
     this.dayLoad.fill(0);
+    this.groupTotalRem.fill(0);
+    for (let i = 0; i < this.blocks.length; i++) {
+      const b = this.blocks[i];
+      for (let gi = 0; gi < b.course.gIdxs.length; gi++) {
+        this.groupTotalRem[b.course.gIdxs[gi]] += b.len;
+      }
+    }
     this.teacherLoad.fill(0);
     this.place.fill(null);
     this.courseTeacher.clear();
@@ -241,7 +266,17 @@ class Board {
     const positions = [];
 
     if (b.fixed) {
-      positions.push({ day: b.fixed.day, slotIdxs: b.fixedSlotIdxs });
+      positions.push({ day: b.fixed.day, slotIdxs: b.fixedSlotIdxs, cur: 0 });
+    } else if (this.checkS3) {
+      const g = c.gIdxs[0];
+      for (let d = 0; d < this.D; d++) {
+        const cur = this.dayLoad[g * this.D + d];
+        const mCount = this.morningCount[d] ?? 4;
+        const ds = this.daySlotIdx[d];
+        if (cur < mCount && cur + b.len > mCount) continue;
+        if (cur + b.len > ds.length || cur + b.len > this.maxPerDay) continue;
+        positions.push({ day: d, slotIdxs: ds.slice(cur, cur + b.len), cur });
+      }
     } else {
       const usedDays = c.blockIds.length <= this.D ? new Set() : null;
       if (usedDays) {
@@ -254,7 +289,7 @@ class Board {
         if (usedDays && usedDays.has(d)) continue;
         const ds = this.daySlotIdx[d];
         for (let i = 0; i <= ds.length - b.len; i++) {
-          positions.push({ day: d, slotIdxs: ds.slice(i, i + b.len) });
+          positions.push({ day: d, slotIdxs: ds.slice(i, i + b.len), cur: i });
         }
       }
     }
@@ -298,7 +333,7 @@ class Board {
 
         const ri = this.pickRoom(c, pos.slotIdxs, rng);
         if (ri !== -1) {
-          out.push({ day: pos.day, slotIdxs: pos.slotIdxs, tIdx: ti, rIdx: ri });
+          out.push({ day: pos.day, slotIdxs: pos.slotIdxs, tIdx: ti, rIdx: ri, cur: pos.cur ?? 0 });
         }
       }
     }
@@ -311,6 +346,7 @@ class Board {
     const c = b.course;
     for (let gi = 0; gi < c.gIdxs.length; gi++) {
       const g = c.gIdxs[gi];
+      this.groupTotalRem[g] -= b.len;
       this.dayLoad[g * this.D + opt.day] += b.len;
       const gBase = g * this.S;
       for (let k = 0; k < opt.slotIdxs.length; k++) {
@@ -337,6 +373,7 @@ class Board {
     const c = b.course;
     for (let gi = 0; gi < c.gIdxs.length; gi++) {
       const g = c.gIdxs[gi];
+      this.groupTotalRem[g] += b.len;
       this.dayLoad[g * this.D + opt.day] -= b.len;
       const gBase = g * this.S;
       for (let k = 0; k < opt.slotIdxs.length; k++) {
@@ -390,35 +427,33 @@ class Board {
 
   score(b, opt) {
     let sc = 0;
+    const c = b.course;
+    if (this.checkS3) {
+      const g = c.gIdxs[0];
+      const mCount = this.morningCount[opt.day] ?? 4;
+      const cur = opt.cur ?? this.dayLoad[g * this.D + opt.day];
+      if (cur >= mCount) sc -= 40 + (cur - mCount) * 3;
+      else if (cur > 0) sc -= cur * 6;
+      else sc += 15;
+      if (cur > 0 && cur !== mCount) {
+        const prevBid = this.groupOcc[g * this.S + this.daySlotIdx[opt.day][cur - 1]];
+        if (prevBid >= 0 && this.blocks[prevBid].course.id === c.id) sc -= 12;
+      }
+      const ti = opt.tIdx;
+      if (this.tIsWutthiwong[ti]) sc -= 25;
+      sc -= (this.tMax[ti] - this.teacherLoad[ti]) * 0.25;
+      const gd = this.gDept[g];
+      const td = this.tDept[ti];
+      if (gd && td && gd !== td) sc += 12;
+      return sc;
+    }
     for (let k = 0; k < opt.slotIdxs.length; k++) {
       if (this.slotPeriods[opt.slotIdxs[k]] > this.latestPreferred) sc += 3;
     }
-    const c = b.course;
     for (let gi = 0; gi < c.gIdxs.length; gi++) {
       const g = c.gIdxs[gi];
       sc += this.dayLoad[g * this.D + opt.day] * 0.3;
       sc += this.wasteAfter(g, b, opt) * 4;
-      if (this.checkS3) {
-        const ds = this.daySlotIdx[opt.day];
-        const gBase = g * this.S;
-        let first = -1;
-        let last = -1;
-        for (let i = 0; i < ds.length; i++) {
-          if (this.groupOcc[gBase + ds[i]] !== -1) {
-            if (first === -1) first = i;
-            last = i;
-          }
-        }
-        if (first !== -1) {
-          const optFirst = ds.indexOf(opt.slotIdxs[0]);
-          const optLast = optFirst + opt.slotIdxs.length - 1;
-          const nf = Math.min(first, optFirst);
-          const nl = Math.max(last, optLast);
-          let occAfter = opt.slotIdxs.length;
-          for (let i = nf; i <= nl; i++) if (this.groupOcc[gBase + ds[i]] !== -1) occAfter++;
-          sc += (nl - nf + 1 - occAfter) * 6;
-        }
-      }
     }
     const ti = opt.tIdx;
     const slack = this.tMax[ti] - this.teacherLoad[ti];
@@ -428,6 +463,72 @@ class Board {
     if (gd && td && gd !== td) sc += 25;
     if (this.tIsWutthiwong[ti]) sc -= 2;
     return sc;
+  }
+
+  minMorningForGroup(g) {
+    let rem = this.groupTotalRem[g];
+    if (rem <= 0) return 0;
+    const optsD = [];
+    for (let d = 0; d < this.D; d++) {
+      const cur = this.dayLoad[g * this.D + d];
+      const mCount = this.morningCount[d] ?? 4;
+      const dMax = Math.min(this.maxPerDay, this.daySlotIdx[d].length);
+      if (cur >= mCount) {
+        rem -= Math.max(0, dMax - cur);
+      } else {
+        const p = mCount - cur;
+        const aft = Math.max(0, dMax - mCount);
+        optsD.push({ p, aft });
+      }
+    }
+    if (rem <= 0) return 0;
+    optsD.sort((a, b) => a.p - b.p);
+    let need = 0;
+    for (const { p, aft } of optsD) {
+      if (rem <= 0) break;
+      if (rem <= p) {
+        need += rem;
+        rem = 0;
+      } else if (rem <= p + aft) {
+        need += p;
+        rem = 0;
+      } else {
+        need += p;
+        rem -= p + aft;
+      }
+    }
+    return rem > 0 ? 9999 : need;
+  }
+
+  morningBudgetOk() {
+    if (!this.checkS3) return true;
+    for (const id of this.unplaced) {
+      if (this.blocks[id].fixed) return true;
+    }
+    let freeAllM = 0;
+    let freeNonWM = 0;
+    for (let ti = 0; ti < this.T; ti++) {
+      const base = ti * this.S;
+      let f = 0;
+      for (let d = 0; d < this.D; d++) {
+        const ds = this.daySlotIdx[d];
+        const mCount = this.morningCount[d] ?? 4;
+        for (let i = 0; i < mCount; i++) {
+          if (this.teacherOcc[base + ds[i]] === -1) f++;
+        }
+      }
+      freeAllM += f;
+      if (!this.tIsWutthiwong[ti]) freeNonWM += f;
+    }
+    let needAll = 0;
+    let needNonItPvs = 0;
+    for (let g = 0; g < this.G; g++) {
+      const m = this.minMorningForGroup(g);
+      if (m >= 9999) return false;
+      needAll += m;
+      if (!this.gIsItPvs[g]) needNonItPvs += m;
+    }
+    return needAll <= freeAllM && needNonItPvs <= freeNonWM;
   }
 
   canStillFit(g) {
@@ -599,7 +700,7 @@ class Board {
         occ++;
       }
     }
-    return occ === 0 || last - first + 1 === occ;
+    return occ === 0 || (first === 0 && last === occ - 1);
   }
 
   groupCost(g) {
@@ -608,20 +709,40 @@ class Board {
     const gBase = g * this.S;
     for (let d = 0; d < this.D; d++) {
       const ds = this.daySlotIdx[d];
+      const mCount = this.morningCount[d] ?? 4;
       let first = -1;
       let last = -1;
       let n = 0;
+      let prevCourse = -1;
+      const seenMorning = new Set();
+      const seenAfternoon = new Set();
       for (let i = 0; i < ds.length; i++) {
         const s = ds[i];
-        if (this.groupOcc[gBase + s] !== -1) {
+        const bid = this.groupOcc[gBase + s];
+        if (bid !== -1) {
           if (first === -1) first = i;
           last = i;
           n++;
           if (this.slotPeriods[s] > this.latestPreferred) cost += 3;
+          if (this.checkS3) {
+            const cid = this.blocks[bid].course.id;
+            const halfSet = i < mCount ? seenMorning : seenAfternoon;
+            if (i === mCount) prevCourse = -1;
+            if (cid !== prevCourse && halfSet.has(cid)) cost += 3;
+            halfSet.add(cid);
+            prevCourse = cid;
+          }
+        } else if (i < mCount && this.checkS3) {
+          prevCourse = -1;
+        } else if (i >= mCount && this.checkS3) {
+          prevCourse = -1;
         }
       }
       loads.push(n);
-      if (n > 0) cost += (last - first + 1 - n) * 2;
+      if (n > 0) {
+        if (this.checkS3) cost += (last + 1 - n) * 2;
+        else cost += (last - first + 1 - n) * 2;
+      }
     }
     const avg = loads.reduce((a, b) => a + b, 0) / Math.max(1, loads.length);
     for (const l of loads) cost += (l - avg) * (l - avg) * 0.3;
@@ -688,7 +809,7 @@ export function solve(data, config = {}, { onProgress = () => {} } = {}) {
   onProgress(`เริ่มค้นหา ${blocks.length} บล็อก จาก ${courses.length} รายวิชา-กลุ่ม`);
   const board = new Board(ctx, courses, blocks);
   const NODE_LIMIT = 4000;
-  const MAX_RESTARTS = 200;
+  const MAX_RESTARTS = 250;
   const failCount = new Int32Array(blocks.length);
 
   let found = false;
@@ -713,21 +834,28 @@ export function solve(data, config = {}, { onProgress = () => {} } = {}) {
           failCount[id]++;
           return false;
         }
-        if (!best || opts.length < bestOpts.length || (opts.length === bestOpts.length && b.len > best.len)) {
+        if (
+          !best ||
+          (b.fixed && !best.fixed) ||
+          (Boolean(b.fixed) === Boolean(best.fixed) &&
+            (opts.length < bestOpts.length || (opts.length === bestOpts.length && b.len > best.len)))
+        ) {
           best = b;
           bestOpts = opts;
         }
       }
 
+      const noise = board.checkS3 ? 1.5 : 2;
+      const sliceLimit = board.checkS3 ? 12 : 8;
       const ranked = bestOpts
-        .map((o) => ({ o, k: board.score(best, o) + rng() * 2 }))
+        .map((o) => ({ o, k: board.score(best, o) + rng() * noise }))
         .sort((a, b) => a.k - b.k)
-        .slice(0, 8);
+        .slice(0, sliceLimit);
 
       for (const { o } of ranked) {
         board.assign(best, o);
-        let ok = board.teacherCapacityOk();
-        if (ok) {
+        let ok = board.teacherCapacityOk() && board.morningBudgetOk();
+        if (ok && !board.checkS3) {
           for (const g of best.course.gIdxs) {
             if (!board.canStillFit(g)) {
               ok = false;
@@ -771,6 +899,11 @@ export function solve(data, config = {}, { onProgress = () => {} } = {}) {
   // Phase 2: Simulated Annealing
   const softCostBefore = board.totalCost();
   const movable = blocks.filter((b) => !b.fixed);
+  const byLen = new Map();
+  for (const b of movable) {
+    if (!byLen.has(b.len)) byLen.set(b.len, []);
+    byLen.get(b.len).push(b);
+  }
   const ITER = 20000;
   let temp = 5;
   const cooling = Math.pow(0.01 / temp, 1 / ITER);
@@ -780,11 +913,92 @@ export function solve(data, config = {}, { onProgress = () => {} } = {}) {
     onProgress('ปรับปรุงตารางด้วย Simulated Annealing');
     for (let i = 0; i < ITER && Date.now() < deadline; i++, temp *= cooling) {
       saIterations++;
+      if (board.checkS3) {
+        // Alternate same-length swap (preserves exact prefix) and tail-append move (preserves morning-first prefix)
+        if ((i & 1) === 0) {
+          const b1 = movable[Math.floor(rng() * movable.length)];
+          const peers = byLen.get(b1.len);
+          if (!peers || peers.length < 2) continue;
+          const b2 = peers[Math.floor(rng() * peers.length)];
+          if (b2.id === b1.id || b2.course.id === b1.course.id) continue;
+          if (b1.course.gIdxs.length !== 1 || b2.course.gIdxs.length !== 1) continue;
+          if (b2.course.gIdxs[0] !== b1.course.gIdxs[0]) continue;
+          const p1 = board.place[b1.id];
+          const p2 = board.place[b2.id];
+          const g = b1.course.gIdxs[0];
+          const before = board.groupCost(g);
+          board.unassign(b1);
+          board.unassign(b2);
+          const t1Base = p1.tIdx * board.S;
+          const t2Base = p2.tIdx * board.S;
+          const t1FreeAt2 = p2.slotIdxs.every((s) => board.teacherOcc[t1Base + s] === -1);
+          const r1New = t1FreeAt2 ? board.pickRoom(b1.course, p2.slotIdxs, rng) : -1;
+          if (r1New === -1) {
+            board.assign(b1, p1);
+            board.assign(b2, p2);
+            continue;
+          }
+          board.assign(b1, { day: p2.day, slotIdxs: p2.slotIdxs, tIdx: p1.tIdx, rIdx: r1New, cur: p2.cur });
+          const t2FreeAt1 = p1.slotIdxs.every((s) => board.teacherOcc[t2Base + s] === -1);
+          const r2New = t2FreeAt1 ? board.pickRoom(b2.course, p1.slotIdxs, rng) : -1;
+          if (r2New === -1) {
+            board.unassign(b1);
+            board.assign(b1, p1);
+            board.assign(b2, p2);
+            continue;
+          }
+          board.assign(b2, { day: p1.day, slotIdxs: p1.slotIdxs, tIdx: p2.tIdx, rIdx: r2New, cur: p1.cur });
+          const after = board.groupCost(g);
+          const delta = after - before;
+          if (delta > 0 && rng() >= Math.exp(-delta / temp)) {
+            board.unassign(b2);
+            board.unassign(b1);
+            board.assign(b1, p1);
+            board.assign(b2, p2);
+          }
+          continue;
+        }
+
+        const b = movable[Math.floor(rng() * movable.length)];
+        if (b.course.gIdxs.length !== 1) continue;
+        const g = b.course.gIdxs[0];
+        const old = board.place[b.id];
+        const oldCur = board.dayLoad[g * board.D + old.day];
+        const oldMorning = board.morningCount[old.day] ?? 4;
+        if (old.slotIdxs[old.slotIdxs.length - 1] !== board.daySlotIdx[old.day][oldCur - 1]) continue;
+        if (oldCur > oldMorning && oldCur - b.len < oldMorning) continue;
+
+        const before = board.groupCost(g);
+        board.unassign(b);
+        const opts = board.options(b, rng).filter((o) => o.day !== old.day);
+        if (opts.length === 0) {
+          board.assign(b, old);
+          continue;
+        }
+        const cand = opts[Math.floor(rng() * opts.length)];
+        board.assign(b, cand);
+        if (
+          (cand.tIdx !== old.tIdx && board.teacherMaxEnabled(old.tIdx) && board.teacherLoad[old.tIdx] < board.tMin[old.tIdx]) ||
+          !board.isGroupDayContiguous(g, old.day) ||
+          !board.isGroupDayContiguous(g, cand.day)
+        ) {
+          board.unassign(b);
+          board.assign(b, old);
+          continue;
+        }
+        const delta = board.groupCost(g) - before;
+        if (delta > 0 && rng() >= Math.exp(-delta / temp)) {
+          board.unassign(b);
+          board.assign(b, old);
+        }
+        continue;
+      }
+
       const b = movable[Math.floor(rng() * movable.length)];
       const before = b.course.gIdxs.reduce((s, g) => s + board.groupCost(g), 0);
       const old = board.place[b.id];
       board.unassign(b);
-      let opts = board.options(b, rng);
+      const opts = board.options(b, rng);
       if (opts.length === 0) {
         board.assign(b, old);
         continue;
@@ -792,18 +1006,10 @@ export function solve(data, config = {}, { onProgress = () => {} } = {}) {
       const cand = opts[Math.floor(rng() * opts.length)];
       board.assign(b, cand);
 
-      // Preserve enabled hard constraints (S1/S2 teacher bounds, S3 student no-gap)
+      // Preserve enabled hard constraints (S1/S2 teacher bounds)
       let valid = true;
       if (cand.tIdx !== old.tIdx && board.teacherMaxEnabled(old.tIdx) && board.teacherLoad[old.tIdx] < board.tMin[old.tIdx]) {
         valid = false;
-      }
-      if (valid && board.checkS3) {
-        for (const g of b.course.gIdxs) {
-          if (!board.isGroupDayContiguous(g, old.day) || !board.isGroupDayContiguous(g, cand.day)) {
-            valid = false;
-            break;
-          }
-        }
       }
       if (!valid) {
         board.unassign(b);

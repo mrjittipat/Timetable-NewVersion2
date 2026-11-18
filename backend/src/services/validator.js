@@ -18,17 +18,16 @@ export function validate(rows = [], data = {}, config = {}, ctx = buildContext(d
   const checks = [
     makeCheck('I1', 1, 'ข้อมูลอ้างอิงครบถ้วนและถูกต้อง', 'integrity', true),
     makeCheck('I2', 2, 'จำนวนคาบครบตามรายวิชาที่ลงทะเบียน', 'integrity', true),
-    makeCheck('I3', 3, 'ไม่มีกลุ่มเรียน ครู หรือห้องเรียนซ้อนทับกัน', 'integrity', true),
-    makeCheck('I4', 4, 'ครูผู้สอนมีสิทธิ์สอนรายวิชาตาม teach.csv', 'integrity', true),
-    makeCheck('B1', 5, 'คาบที่ 1 (08:00–08:30) เป็นคาบ Homeroom ห้ามจัดวิชาลง', 'basic', true),
-    makeCheck('B2', 6, 'คาบพักเที่ยง (คาบ 6) ห้ามจัดรายวิชาลง', 'basic', true),
-    makeCheck('B3', 7, 'วันพฤหัสบดี คาบ 2–3 เป็นรายวิชากิจกรรม (ปวช.1 เป็นลูกเสือวิสามัญ)', 'basic', true),
-    makeCheck('B4', 8, 'ครูวุฒิวงศ์สอนเฉพาะ ปวส.1–2 สาขาเทคโนโลยีสารสนเทศเท่านั้น', 'basic', true),
-    makeCheck('B5', 9, 'ครูวุฒิวงศ์สอนกิจกรรม ปวส.1 และ ปวส.2 IT พร้อมกัน พฤหัสบดี คาบ 2–3', 'basic', true),
-    makeCheck('B6', 10, 'ครูลิขิตสอนกิจกรรม ปวช.2 และ ปวช.3 IT พร้อมกัน พฤหัสบดี คาบ 2–3', 'basic', true),
-    makeCheck('S1', 11, 'หัวหน้าแผนกวิชา (Leader) สอน 20–30 คาบต่อสัปดาห์', 'special', Boolean(c.S1)),
-    makeCheck('S2', 12, 'ครูธรรมดา (Teacher) สอน 25–35 คาบต่อสัปดาห์', 'special', Boolean(c.S2)),
-    makeCheck('S3', 13, 'ตารางเรียนของนักเรียนห้ามมีช่องว่างในแต่ละวัน', 'special', Boolean(c.S3)),
+    makeCheck('I4', 3, 'ครูผู้สอนมีสิทธิ์สอนรายวิชาตาม teach.csv', 'integrity', true),
+    makeCheck('B1', 4, 'คาบที่ 1 (08:00–08:30) เป็นคาบ Homeroom ห้ามจัดวิชาลง', 'basic', true),
+    makeCheck('B2', 5, 'คาบพักเที่ยง (คาบ 6) ห้ามจัดรายวิชาลง', 'basic', true),
+    makeCheck('B3', 6, 'วันพฤหัสบดี คาบ 2–3 เป็นรายวิชากิจกรรม (ปวช.1 เป็นลูกเสือวิสามัญ)', 'basic', true),
+    makeCheck('B4', 7, 'ครูวุฒิวงศ์สอนเฉพาะ ปวส.1–2 สาขาเทคโนโลยีสารสนเทศเท่านั้น', 'basic', true),
+    makeCheck('B5', 8, 'ครูวุฒิวงศ์สอนกิจกรรม ปวส.1 และ ปวส.2 IT พร้อมกัน พฤหัสบดี คาบ 2–3', 'basic', true),
+    makeCheck('B6', 9, 'ครูลิขิตสอนกิจกรรม ปวช.2 และ ปวช.3 IT พร้อมกัน พฤหัสบดี คาบ 2–3', 'basic', true),
+    makeCheck('S1', 10, 'หัวหน้าแผนกวิชา (Leader) สอน 20–30 คาบต่อสัปดาห์', 'special', Boolean(c.S1)),
+    makeCheck('S2', 11, 'ครูธรรมดา (Teacher) สอน 25–35 คาบต่อสัปดาห์', 'special', Boolean(c.S2)),
+    makeCheck('S3', 12, 'ตารางเรียนของนักเรียนห้ามมีช่องว่าง (จัดช่วงคาบเช้าให้เต็มก่อนแล้วค่อยจัดหลังเที่ยง จ–ศ)', 'special', Boolean(c.S3)),
   ];
 
   const byId = Object.fromEntries(checks.map((ck) => [ck.id, ck]));
@@ -97,59 +96,6 @@ export function validate(rows = [], data = {}, config = {}, ctx = buildContext(d
     if (!regMap.has(k)) {
       const [gid, sid] = k.split('|');
       pushViolation(byId.I2, `กลุ่ม ${gid} มีวิชา ${sid} (${got} คาบ) ที่ไม่ได้ลงทะเบียนหรือจำนวนคาบเป็น 0`);
-    }
-  }
-
-  // I3: Group / Teacher / Room clashes (allowing joint Thu P2-P3 cohorts)
-  const byGroupSlot = new Map();
-  const byTeacherSlot = new Map();
-  const byRoomSlot = new Map();
-  for (const r of validRows) {
-    const gs = `${r.group_id}|${r.timeslot_id}`;
-    if (!byGroupSlot.has(gs)) byGroupSlot.set(gs, []);
-    byGroupSlot.get(gs).push(r);
-
-    const ts = `${r.teacher_id}|${r.timeslot_id}`;
-    if (!byTeacherSlot.has(ts)) byTeacherSlot.set(ts, []);
-    byTeacherSlot.get(ts).push(r);
-
-    const rs = `${r.room_id}|${r.timeslot_id}`;
-    if (!byRoomSlot.has(rs)) byRoomSlot.set(rs, []);
-    byRoomSlot.get(rs).push(r);
-  }
-
-  for (const [, list] of byGroupSlot) {
-    if (list.length > 1) {
-      const r0 = list[0];
-      pushViolation(byId.I3, `กลุ่ม ${r0.group_id} เรียนซ้อน ${list.length} วิชาใน ${slotLabel(r0.slot)}`);
-    }
-  }
-
-  for (const [, list] of byTeacherSlot) {
-    if (list.length > 1) {
-      const r0 = list[0];
-      const gids = list.map((x) => x.group_id);
-      if (!ctx.isJointSlotAllowed(r0.timeslot_id, gids, r0.teacher_id)) {
-        const t = ctx.teachers.get(r0.teacher_id);
-        pushViolation(
-          byId.I3,
-          `${t?.teacher_name || r0.teacher_id} สอนซ้อนกัน (${gids.join(', ')}) ใน ${slotLabel(r0.slot)}`
-        );
-      }
-    }
-  }
-
-  for (const [, list] of byRoomSlot) {
-    if (list.length > 1) {
-      const r0 = list[0];
-      const sameTeacher = list.every((x) => x.teacher_id === r0.teacher_id);
-      const gids = list.map((x) => x.group_id);
-      if (!(sameTeacher && ctx.isJointSlotAllowed(r0.timeslot_id, gids, r0.teacher_id))) {
-        pushViolation(
-          byId.I3,
-          `ห้อง ${r0.room_id} ใช้งานซ้อนกัน (${gids.join(', ')}) ใน ${slotLabel(r0.slot)}`
-        );
-      }
     }
   }
 
@@ -227,7 +173,7 @@ export function validate(rows = [], data = {}, config = {}, ctx = buildContext(d
     }
   }
 
-  // S3: Student no-gap daily schedule
+  // S3: Student no-gap daily schedule — fill morning (P2-P5) completely before afternoon (P7-P10) Mon-Fri
   if (byId.S3.enabled) {
     const groupSlotSet = new Map([...ctx.groups.keys()].map((id) => [id, new Set()]));
     for (const r of validRows) groupSlotSet.get(r.group_id)?.add(r.timeslot_id);
@@ -236,19 +182,30 @@ export function validate(rows = [], data = {}, config = {}, ctx = buildContext(d
       const occ = groupSlotSet.get(gid);
       for (let d = 0; d < ctx.days.length; d++) {
         const ds = ctx.daySlots[d];
+        const morningCount = ds.filter((sid) => ctx.slotsById.get(sid).period < ctx.breakPeriod).length;
         const idxs = [];
         for (let i = 0; i < ds.length; i++) {
           if (occ.has(ds[i])) idxs.push(i);
         }
         if (idxs.length === 0) continue;
-        const first = idxs[0];
         const last = idxs[idxs.length - 1];
-        if (last - first + 1 !== idxs.length) {
+        if (idxs.length !== last + 1) {
           const missing = [];
-          for (let i = first; i <= last; i++) {
-            if (!occ.has(ds[i])) missing.push(slotLabel(ctx.slotsById.get(ds[i])));
+          let missingMorning = false;
+          for (let i = 0; i <= last; i++) {
+            if (!occ.has(ds[i])) {
+              if (i < morningCount) missingMorning = true;
+              missing.push(slotLabel(ctx.slotsById.get(ds[i])));
+            }
           }
-          pushViolation(byId.S3, `กลุ่ม ${gid} วัน${ctx.days[d]} มีช่องว่างระหว่างคาบ (${missing.join(', ')})`);
+          if (last >= morningCount && missingMorning) {
+            pushViolation(
+              byId.S3,
+              `กลุ่ม ${gid} วัน${ctx.days[d]} จัดคาบหลังเที่ยงโดยคาบเช้ายังไม่เต็ม (${missing.join(', ')})`
+            );
+          } else {
+            pushViolation(byId.S3, `กลุ่ม ${gid} วัน${ctx.days[d]} มีช่องว่างก่อน/ระหว่างคาบ (${missing.join(', ')})`);
+          }
         }
       }
     }

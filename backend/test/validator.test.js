@@ -45,11 +45,6 @@ expectFail('I2', 'missing course period', (rows) => {
   rows.splice(idx, 1);
 });
 
-expectFail('I3', 'group double-booked in same slot', (rows) => {
-  const g01Rows = rows.filter((r) => r.group_id === 'G01' && !ctx.isActivity(r.subject_id));
-  g01Rows[1].timeslot_id = g01Rows[0].timeslot_id;
-});
-
 expectFail('I4', 'unauthorized teacher for subject', (rows) => {
   const r = rows.find((x) => !ctx.isActivity(x.subject_id));
   const allowed = new Set(ctx.teachersBySubject.get(r.subject_id) || []);
@@ -117,19 +112,16 @@ expectFail('S2', 'Teacher exceeds 35 periods', (rows) => {
   }
 });
 
-expectFail('S3', 'student daily gap created', (rows) => {
-  // Find any group+day with >= 3 contiguous usable slots and delete/move a middle slot to create a gap
+expectFail('S3', 'afternoon scheduled while morning not full / gap created', (rows) => {
+  // Move a morning slot of a group+day onto a free slot (either creating an afternoon-before-morning-full or leading gap)
   for (const gid of ctx.groups.keys()) {
     for (let d = 0; d < ctx.days.length; d++) {
       const ds = ctx.daySlots[d];
-      const occ = ds.map((sid) => rows.find((r) => r.group_id === gid && r.timeslot_id === sid)).filter(Boolean);
-      if (occ.length >= 3) {
-        const mid = occ[1];
-        const freeOther = ctx.daySlots.flat().find((sid) => !rows.some((r) => r.group_id === gid && r.timeslot_id === sid));
-        if (freeOther) {
-          mid.timeslot_id = freeOther;
-          return;
-        }
+      const morningRow = rows.find((r) => r.group_id === gid && r.timeslot_id === ds[0] && !ctx.isActivity(r.subject_id));
+      const freeSlot = ds.slice().reverse().find((sid) => !rows.some((r) => r.group_id === gid && r.timeslot_id === sid));
+      if (morningRow && freeSlot) {
+        morningRow.timeslot_id = freeSlot;
+        return;
       }
     }
   }

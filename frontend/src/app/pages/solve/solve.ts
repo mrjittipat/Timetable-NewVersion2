@@ -12,7 +12,7 @@ import { Icon } from '../../shared/icon';
 const SPECIAL_DEFS = [
   { id: 'S1', title: 'ภาระสอนหัวหน้าแผนกวิชา (20–30 คาบ)', detail: 'ครูที่เป็นหัวหน้าแผนกวิชา (Leader) สอนอย่างต่ำ 20 คาบ และสูงสุดไม่เกิน 30 คาบ/สัปดาห์' },
   { id: 'S2', title: 'ภาระสอนครูธรรมดา (25–35 คาบ)', detail: 'ครูธรรมดา (Teacher รวมหัวหน้างานทะเบียน) สอนอย่างต่ำ 25 คาบ และสูงสุดไม่เกิน 35 คาบ/สัปดาห์' },
-  { id: 'S3', title: 'ตารางเรียนนักเรียนห้ามมีช่องว่าง', detail: 'ในแต่ละวันของนักเรียน/นักศึกษาเมื่อเริ่มเรียนแล้วห้ามมีคาบว่างคั่น (ยกเว้น Homeroom และพักเที่ยง)' },
+  { id: 'S3', title: 'ตารางเรียนนักเรียนห้ามมีช่องว่าง', detail: 'ทุกวัน จ–ศ จัดช่วงคาบเช้า (คาบ 2–5) ให้เต็มก่อนแล้วค่อยจัดช่วงหลังเที่ยง (คาบ 7–10) โดยไม่มีคาบว่างคั่น (ยกเว้น Homeroom และพักเที่ยง)' },
 ];
 
 const BASIC_DEFS = [
@@ -301,7 +301,7 @@ const BASIC_DEFS = [
               <div class="algo-steps">
                 <div class="a-step"><strong>1. CSP Search (MRV)</strong> · ค้นหาการจัดวางที่ผ่านทุกเงื่อนไขบังคับ</div>
                 <div class="a-step"><strong>2. Simulated Annealing</strong> · ปรับสมดุลตารางลด Soft Cost</div>
-                <div class="a-step"><strong>3. Validator อิสระ</strong> · ตรวจซ้ำครบทั้ง 13 ข้อ</div>
+                <div class="a-step"><strong>3. Validator อิสระ</strong> · ตรวจซ้ำครบทั้ง 12 ข้อ</div>
               </div>
 
               @if (auth.isAdmin()) {

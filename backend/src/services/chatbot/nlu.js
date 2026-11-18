@@ -10,7 +10,7 @@ const DAY_PATTERNS = [
   { key: 'Sun', re: /(อาทิตย์|sun(?:day)?)/g },
 ];
 
-const CHECK_ORDER = ['I1', 'I2', 'I3', 'I4', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'S1', 'S2', 'S3'];
+const CHECK_ORDER = ['I1', 'I2', 'I4', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'S1', 'S2', 'S3'];
 const SPECIAL_IDS = ['S1', 'S2', 'S3'];
 
 export function normalize(text) {
@@ -95,7 +95,7 @@ export function extract(text, ctx) {
       ids = parseConstraintIds(body).filter((id) => SPECIAL_IDS.includes(id));
       if (/หัวหน้า/.test(body) && !ids.includes('S1')) ids.push('S1');
       if (/ครูธรรมดา/.test(body) && !ids.includes('S2')) ids.push('S2');
-      if (/(ช่องว่าง|คาบว่าง)/.test(body) && !ids.includes('S3')) ids.push('S3');
+      if (/(ช่องว่าง|คาบว่าง|เช้าให้เต็ม)/.test(body) && !ids.includes('S3')) ids.push('S3');
     }
     for (const id of ids) {
       if (action === 'เปิด' && !on.includes(id)) on.push(id);

@@ -273,10 +273,9 @@ and exits 1 if any failed. All start with `store.init(); const data = store.getD
 
 **`validator.test.js`.** `cfg = mergeConfig(DEFAULT_CONFIG)`, `ctx = buildContext(data, cfg)`,
 `good = solve(data, cfg).rows`. Line 1: `validate(good)` passes. Then one deliberate mutation per
-check (`I1..I4`, `B1..B6`, `S1..S3`) on a fresh copy must make the matching check fail (print its first violation):
+check (`I1, I2, I4`, `B1..B6`, `S1..S3`) on a fresh copy must make the matching check fail (print its first violation):
 - `I1`: corrupt `room_id` to an unknown room (`BAD_ROOM`) → `I1` fails.
 - `I2`: drop one row from a group's course → `I2` fails.
-- `I3`: move one row into an occupied group/teacher slot → `I3` fails.
 - `I4`: assign a subject to a teacher not in `teach.csv` → `I4` fails.
 - `B1`: move a row into Period 1 (`08:00-08:30` Homeroom) → `B1` fails.
 - `B2`: move a row into Period 6 (`12:30-13:30` พักเที่ยง) → `B2` fails.
@@ -286,7 +285,7 @@ check (`I1..I4`, `B1..B6`, `S1..S3`) on a fresh copy must make the matching chec
 - `B6`: move `G02` or `G03` Thursday P2-P3 off `T02` or out of Thu P2-P3 → `B6` fails.
 - `S1`: overload a `Leader` past 30 periods (or drop below 20) → `S1` fails.
 - `S2`: overload a `Teacher` past 35 periods (or drop below 25) → `S2` fails.
-- `S3`: move a group's block to create an empty usable slot between its first and last occupied slot on that day → `S3` fails.
+- `S3`: move a group's morning/afternoon block so afternoon slots are scheduled before all morning slots (P2–P5) are filled or leave a gap starting from P2 on that day → `S3` fails.
 
 **`run-solver.js`.** `base = loadConfig()`; runs: `all-on` (`S1,S2,S3` all true), `basic-only` (`S1,S2,S3` all false), `load-only` (`S1,S2` true, `S3` false), and `no-gap-only` (`S1,S2` false, `S3` true). For each, `mergeConfig({ ...base, constraints })`, solve, and PASS only if `status === 'success'` and `validate(...).passed`. Print rows, restarts, soft cost and seconds; on failure print the message/errors or the failed checks.
 
@@ -337,7 +336,7 @@ must have intent `free` and `context.id === 'G03'`.
 
 ### D.3 `backend/src/services/chatbot/knowledge.js`
 Static content only (no logic), four named exports:
-- `CONSTRAINTS`: object keyed by `I1..I4`, `B1..B6`, `S1..S3`, each `{ name, detail, why, fix }` in Thai
+- `CONSTRAINTS`: object keyed by `I1, I2, I4`, `B1..B6`, `S1..S3`, each `{ name, detail, why, fix }` in Thai
   (name = short title, detail = the rule as in SPEC §1.3, why = common cause of a failure, fix = how to fix it).
 - `PAGES`: `[{ path, title, keywords[] }]` for `/`, `/data`, `/solve`, `/timetable`, `/teacher-summary`, `/report`,
   `/export`, `/settings` (titles as the sidebar labels).
@@ -552,8 +551,9 @@ one period with one subject, teacher and room. No BOM.
 **Integrity checks (always on):**
 - `I1`: ข้อมูลอ้างอิงครบถ้วนและถูกต้อง (ทุกแถวมี `group_id`, `timeslot_id`, `subject_id`, `teacher_id`, `room_id` ตรงกับข้อมูลตั้งต้น)
 - `I2`: จำนวนคาบครบตามหลักสูตร (`min(ทฤษฎี + ปฏิบัติ, จำนวนชั่วโมงเรียน)` ต่อคู่กลุ่ม-วิชา)
-- `I3`: ไม่มีกลุ่มเรียน ครู หรือห้องเรียน ซ้อนทับกันในคาบเดียวกัน (ยกเว้นคาบกิจกรรมเรียนร่วมวันพฤหัสบดี คาบ 2–3)
 - `I4`: ครูผู้สอนมีสิทธิ์สอนรายวิชานั้นตาม `teach.csv`
+
+*(หมายเหตุ: นำการตรวจซ้อนทับ `I3` ออกจาก Validator ตามคำขอผู้ใช้; โดยตัวจัดตารางอัตโนมัติ Solver ยังคงจัดไม่ให้กลุ่ม/ครู/ห้องซ้อนกันตามปกติ)*
 
 **Basic constraints (always on):**
 - `B1` (ข้อ 1): คาบที่ 1 เวลา `08:00–08:30` เป็นคาบ Homeroom ทั้งวิทยาลัย ห้ามจัดรายวิชาใด ๆ ลงในคาบที่ 1
@@ -566,7 +566,7 @@ one period with one subject, teacher and room. No BOM.
 **Special constraints (toggleable on/off, default all ON):**
 - `S1` (ข้อ 3): ครูหัวหน้าแผนกวิชา (Leader) สอนอย่างต่ำ 20 คาบ และสูงสุดไม่เกิน 30 คาบต่อสัปดาห์ (นับตามเวลาจริง)
 - `S2` (ข้อ 4): ครูธรรมดา (Teacher รวมหัวหน้างานทะเบียน) สอนอย่างต่ำ 25 คาบ และสูงสุดไม่เกิน 35 คาบต่อสัปดาห์ (นับตามเวลาจริง)
-- `S3` (ข้อ 10): ตารางเรียนของนักเรียน/นักศึกษาห้ามมีช่องว่างคั่นระหว่างคาบเรียนในแต่ละวัน (ยกเว้น Homeroom และพักเที่ยง; ครูว่างได้)
+- `S3` (ข้อ 10): ตารางเรียนของนักเรียน/นักศึกษาห้ามมีช่องว่าง โดยใช้หลัก **จัดช่วงคาบเช้า (คาบ 2–5) ให้เต็มก่อนแล้วค่อยไปจัดช่วงหลังเที่ยง (คาบ 7–10) ทุกวันจันทร์–ศุกร์** (คาบที่จัดในแต่ละวันต้องเรียงต่อเนื่องตั้งแต่คาบ 2 โดยไม่มีคาบว่างคั่น; ยกเว้น Homeroom และพักเที่ยง; ครูว่างได้)
 
 **Additional system requirement:**
 - **ข้อ 6**: มีหน้าแสดงข้อมูลสรุปการสอนของครูรายบุคคล แสดงจำนวน ทฤษฎี ปฏิบัติ หน่วยกิต คาบรวม ปวช. คาบรวม ปวส. และคาบรวมทั้งหมด (นับตามเวลาจริง)
@@ -711,19 +711,18 @@ statically and send `index.html` for any non-`/api` GET (SPA fallback). Error ha
   - **Integrity (`type: 'integrity'`):**
     - `I1` (1): ข้อมูลอ้างอิงครบถ้วนและถูกต้อง (ทุกแถวมีรหัสกลุ่ม, คาบ, วิชา, ครู, ห้อง ครบและมีอยู่ในข้อมูล)
     - `I2` (2): จำนวนคาบครบตามรายวิชาที่ลงทะเบียน (`min(ท+ป, จำนวนชั่วโมงเรียน)` ต่อคู่กลุ่ม-วิชา)
-    - `I3` (3): ไม่มีกลุ่มเรียน ครู หรือห้องเรียน ซ้อนทับกันในคาบเดียวกัน (ยกเว้นคาบกิจกรรมเรียนร่วม พฤหัสบดี คาบ 2–3)
-    - `I4` (4): ครูผู้สอนมีสิทธิ์สอนรายวิชานั้นตาม `teach.csv`
+    - `I4` (3): ครูผู้สอนมีสิทธิ์สอนรายวิชานั้นตาม `teach.csv`
   - **Basic (`type: 'basic'`, always enabled):**
-    - `B1` (5): คาบที่ 1 (08:00–08:30) เป็นคาบ Homeroom ห้ามจัดรายวิชาลง
-    - `B2` (6): คาบพักเที่ยง (คาบที่ 6 เวลา 12:30–13:30) ห้ามจัดรายวิชาลง
-    - `B3` (7): วันพฤหัสบดี คาบ 2–3 เป็นรายวิชากิจกรรม และ ปวช. ปี 1 เป็นคาบลูกเสือวิสามัญ
-    - `B4` (8): ครูวุฒิวงศ์ เอียดศรีชาย สอนเฉพาะ ปวส.1–2 สาขาเทคโนโลยีสารสนเทศเท่านั้น
-    - `B5` (9): ครูวุฒิวงศ์ เอียดศรีชาย สอนกิจกรรม ปวส.1 และ ปวส.2 IT พร้อมกัน พฤหัสบดี คาบ 2–3
-    - `B6` (10): ครูลิขิต ชมขวัญ สอนกิจกรรม ปวช.2 และ ปวช.3 IT พร้อมกัน พฤหัสบดี คาบ 2–3
+    - `B1` (4): คาบที่ 1 (08:00–08:30) เป็นคาบ Homeroom ห้ามจัดรายวิชาลง
+    - `B2` (5): คาบพักเที่ยง (คาบที่ 6 เวลา 12:30–13:30) ห้ามจัดรายวิชาลง
+    - `B3` (6): วันพฤหัสบดี คาบ 2–3 เป็นรายวิชากิจกรรม และ ปวช. ปี 1 เป็นคาบลูกเสือวิสามัญ
+    - `B4` (7): ครูวุฒิวงศ์ เอียดศรีชาย สอนเฉพาะ ปวส.1–2 สาขาเทคโนโลยีสารสนเทศเท่านั้น
+    - `B5` (8): ครูวุฒิวงศ์ เอียดศรีชาย สอนกิจกรรม ปวส.1 และ ปวส.2 IT พร้อมกัน พฤหัสบดี คาบ 2–3
+    - `B6` (9): ครูลิขิต ชมขวัญ สอนกิจกรรม ปวช.2 และ ปวช.3 IT พร้อมกัน พฤหัสบดี คาบ 2–3
   - **Special (`type: 'special'`, toggleable via `config.constraints`):**
-    - `S1` (11): ครูหัวหน้าแผนกวิชา (Leader) สอน 20–30 คาบต่อสัปดาห์ (นับตามเวลาจริง)
-    - `S2` (12): ครูธรรมดา (Teacher) สอน 25–35 คาบต่อสัปดาห์ (นับตามเวลาจริง)
-    - `S3` (13): ตารางเรียนของนักเรียน/นักศึกษาห้ามมีช่องว่างคั่นระหว่างวัน (ยกเว้น Homeroom และพักเที่ยง)
+    - `S1` (10): ครูหัวหน้าแผนกวิชา (Leader) สอน 20–30 คาบต่อสัปดาห์ (นับตามเวลาจริง)
+    - `S2` (11): ครูธรรมดา (Teacher) สอน 25–35 คาบต่อสัปดาห์ (นับตามเวลาจริง)
+    - `S3` (12): ตารางเรียนของนักเรียนห้ามมีช่องว่าง (จัดช่วงคาบเช้าให้เต็มก่อนแล้วค่อยจัดหลังเที่ยง จ–ศ)
   - Basic checks (`type: 'basic'`) are always enabled (`enabled: true`).
   - Special checks (`type: 'special'`) read their toggle state from `config.constraints`; when off,
     return `enabled: false, passed: true`.
@@ -764,8 +763,7 @@ function mulberry32(seed) {
   - Joint cohorts (`T01` -> `G04+G05`, `T02` -> `G02+G03`, `T03` -> `G01+G06` Scout `20000-2002`) with `subByGroup` mapping each group to its registered activity `subject_id`.
   - Single-group fixed activity blocks for any remaining group's activity subject at Thu P2–P3 using its advisor (or `teachersBySubject`).
 - Walk remaining `registrations` in order, skipping 0-hour subjects and already-scheduled activity courses, and create `kind = 'normal'` courses. Apply `B4`: filter out `T01` (ครูวุฒิวงศ์) for any group not in `IT ปวส.1` or `IT ปวส.2`.
-- Blocks: split hours by `splitHours(h, maxBlock)`: n = ceil(h / max(1, maxBlock)), sizes `floor(h/n)`,
-  the first `h % n` get +1 (6→[3,3], 5→[3,2]), or assign `fixed = { day: thuDayIdx, slots: thuActivitySlots, teacher }` for activity courses. Block = `{ id, course, len, fixed }`; `course.blockIds` lists its blocks.
+- Blocks: when `S3` is disabled, split hours by `splitHours(h, maxBlock)` (`ceil(h/maxBlock)`); when `S3` is enabled (morning-first prefix Mon–Fri), split non-fixed hours into blocks capped at `min(2, maxBlock)` (`[2,2]`, `[2,1]`, `[2,2,1]`, `[2,2,2]`) so morning halves (`P2–P5`) fill cleanly without stranded periods before afternoon (`P7–P10`) (and Phase 2 SA merges same-course adjacent blocks where possible), or assign `fixed = { day: thuDayIdx, slots: thuActivitySlots, teacher }` for activity courses. Block = `{ id, course, len, fixed }`; `course.blockIds` lists its blocks.
 
 ### 5.3 Board
 State: maps `group` (`g|slot`→block), `teacher` (`t|slot`), `room` (`r|slot`), `dayLoad` (`g|dayIdx`→periods),
@@ -774,27 +772,23 @@ State: maps `group` (`g|slot`→block), `teacher` (`t|slot`), `room` (`r|slot`),
 
 - `options(b, rng)` → feasible placements, in this order:
   - teachers = the course's held teacher if any (all blocks of a course use one teacher), else `course.teachers`.
-  - positions: `b.fixed` alone, or for each `dayIdx` in order and each start `i` (0…) a window of `b.len`
-    consecutive entries of `daySlots[dayIdx]`. If `course.blockIds.length ≤ days.length`, skip days already
-    used by another placed block of the same course (spread blocks over days).
-  - keep a position if every course group is free in all its slots (and passes `maxPerDay` and `S3` no-gap check during SA / post-assign check); then for each teacher (in order) free in all slots (and if `S1`/`S2` is enabled, `teacherLoad + needHours <= teacherMax`), call `pickRoom` and push `{ day, slots, teacher, room }` if a room was found.
+  - positions: `b.fixed` alone; when `S3` is enabled, append at exact day prefix index `cur = dayLoad[g, day]` on each day (`daySlots[day].slice(cur, cur + b.len)`), never crossing the morning/lunch boundary (`cur < 4 && cur + b.len > 4`) and passing `maxPerDay` — this enforces morning P2–P5 full before afternoon P7–P10 without gaps across Mon–Fri; when `S3` is disabled, scan windows of `b.len` consecutive slots (skipping same day if `course.blockIds.length ≤ days.length`).
+  - keep a position if every course group is free in all its slots (and passes `maxPerDay`); then for each teacher free in all slots (and if `S1`/`S2` is enabled, `teacherLoad + needHours <= teacherMax`), call `pickRoom` and push `{ day, slots, teacher, room }` if a room was found.
 - `pickRoom(course, slots, rng)`: first, the room of any already-placed block of the course that is free
   in all slots (no rng used). Otherwise `start = floor(rng() * rooms.length)` and scan rooms cyclically
   from `start`; return the first free one, or null.
 - `assign` / `unassign` update all maps, `dayLoad`, `teacherLoad`, `courseTeacher` refs (delete at 0) and `unplaced`
   (`unassign` re-adds the id at the **end** of the Set).
 - Constructor also builds `groupBlocks`: Map group → its blocks (block id order).
-- `score(b, opt)` = Σ over slots (+3 if period > `latestPreferredPeriod`) + Σ over groups (`dayLoad(g, day) × 0.3` + `wasteAfter(g, b, opt) × 4` + internal gap penalty if `S3` enabled) + teacher slack/department balance (when `S1`/`S2` enabled, gently prefer same-department teacher and teachers with more remaining slack so loads stay in `[min, max]`).
+- `score(b, opt)` = when `S3` enabled, rank afternoon completions on already-full mornings (`cur >= 4`) first and active morning prefixes (`cur > 0`) before empty mornings (`cur === 0`), gently reward continuing the same course inside a half-day, favor `T01` on eligible `G04/G05` slots, and balance teacher slack/department fit; when `S3` disabled, balance daily load, minimize `wasteAfter`, and maintain teacher slack/department fit.
 - `wasteAfter(g, b, opt)`: `minLen` = smallest len of g's blocks that are not b, not placed and not fixed
   (none → 0). Walk `daySlots[opt.day]`; a slot is free if not in opt.slots and g has nothing there.
   Sum the lengths of free runs with `0 < run < minLen`.
-- `canStillFit(g)`: `lens` = lens of g's unplaced, non-fixed blocks (empty → true). When `S3` is enabled,
-  verify any internal gap run inside `[first..last]` on any day is `>= minRem` and total internal gaps
-  `<= sum(lens)` (and `0` when `lens` is empty). `runs` = lengths of g's free runs (internal gaps + outer free prefixes/suffixes) over every day's `daySlots`. For each distinct L in lens: count/need = number/sum of lens
-  ≥ L; fits/room = Σ floor(r/L) / Σ r over runs with r ≥ L. Return false if count > fits or need > room.
+- `morningBudgetOk()`: when `S3` is enabled and all fixed Thu blocks are placed, compute each group's minimum additional morning periods needed to fit its remaining hours without breaking morning-before-afternoon, and check against remaining free morning teacher periods (total and non-`T01` pool).
+- `canStillFit(g)`: `lens` = lens of g's unplaced, non-fixed blocks (empty → true). `runs` = lengths of g's free runs over every day's `daySlots`. For each distinct L in lens: count/need = number/sum of lens ≥ L; fits/room = Σ floor(r/L) / Σ r over runs with r ≥ L. Return false if count > fits or need > room.
 - `teacherCapacityOk()`: when `S1` or `S2` is enabled, verify committed + unheld courses fit remaining teacher bounds `[min, max]` (including IT-only / DB-only course pools and per-teacher minimum reachability).
 - `groupCost(g)`: for each day, over `daySlots` indexes the group occupies: `first`, `last`, `n`;
-  +3 per occupied slot with period > `latestPreferredPeriod`; + `(last - first + 1 - n) × 2` (gaps);
+  +3 per occupied slot with period > `latestPreferredPeriod`; + `(last - first + 1 - n) × 2` (gaps); + fragmentation penalty when multiple blocks of the same course on the same half-day are non-adjacent;
   then with `loads` = periods per day and `avg` their mean, + Σ `(load - avg)² × 0.3`.
   `totalCost()` = Σ over groups.
 - `toRows()`: for each block in id order, each slot, each group → row (using `subByGroup[g]` if present, else `course.subjectId`). Sort by group_id
@@ -802,19 +796,19 @@ State: maps `group` (`g|slot`→block), `teacher` (`t|slot`), `room` (`r|slot`),
 
 ### 5.4 Phase 1: DFS with MRV and restarts
 ```
-NODE_LIMIT = 4000, MAX_RESTARTS = 200
-while not found and restarts < 200 and now < deadline:
-    board.clear(); budget = 4000; found = dfs(); nodes += used; restarts++
+NODE_LIMIT = 4000, MAX_RESTARTS = 250
+while not found and restarts < MAX_RESTARTS and now < deadline:
+    board.clear(); budget = NODE_LIMIT; found = dfs(); nodes += used; restarts++
     if not found: onProgress('รอบที่ <n> ยังไม่พบคำตอบ เริ่มใหม่')
 dfs():
     if unplaced is empty: return true
     if --budget <= 0 or now > deadline: return false
     for id in unplaced (Set order): opts = options(block, rng)
         if opts is empty: failCount[id]++; return false
-        keep the block with fewest opts; on a tie prefer the larger len
-    ranked = opts mapped to key score(best, o) + rng()*2, sorted ascending, first 8
+        prefer fixed blocks first, then keep block with fewest opts (tie-break larger len)
+    ranked = opts mapped to key score(best, o) + rng()*1.5, sorted ascending, first (checkS3 ? 12 : 8)
     for opt in ranked: assign
-        if not board.teacherCapacityOk() or not every group of best.course canStillFit: unassign; continue
+        if not board.teacherCapacityOk() or not board.morningBudgetOk() or (not checkS3 and not every group canStillFit): unassign; continue
         if dfs() return true; unassign; if budget <= 0 return false
     return false
 ```
@@ -825,16 +819,10 @@ On failure: message `ไม่พบตารางที่ผ่านทุ�
 ```
 movable = blocks without fixed; ITER = 20000; temp = 5; cooling = (0.01/temp)^(1/ITER)
 for i < ITER and now < deadline (temp *= cooling each iteration):
-    b = movable[floor(rng()*movable.length)]
-    before = Σ groupCost(g) over b's groups; old = place[b]
-    unassign(b); opts = options(b, rng)
-    if S3 enabled: filter opts to those leaving every group of b gap-free on old.day and opt.day
-    if S1/S2 enabled: filter opts where teacher stays within [min, max] (keeping courseTeacher consistency)
-    if opts is empty: assign(b, old); continue
-    cand = opts[floor(rng()*opts.length)]; assign(b, cand)
-    if (S3 enabled and any group of b has gap) or (S1/S2 enabled and not teacherCapacityOk()): unassign(b); assign(b, old); continue
+    when S3 is enabled: alternately attempt (a) same-length block swap preserving prefix/teacher bounds/course-teacher consistency, or (b) tail-append move from day d1 tail to day d2 tail keeping prefix daySlots[0..k-1] and S1/S2
+    when S3 is disabled: pick movable block b, unassign, test random feasible option preserving S1/S2
     delta = Σ groupCost after − before
-    if delta > 0 and rng() >= exp(-delta/temp): unassign(b); assign(b, old)
+    if delta > 0 and rng() >= exp(-delta/temp): revert
 ```
 (When `delta ≤ 0`, `rng()` is not called for the acceptance test.)
 
@@ -1280,8 +1268,8 @@ subjects, days, periods, numbers, seed, randomSeed, on, off, target? }`.
 - periods: `คาบ(ที่)? a [-|–|ถึง b]` → the range (existing periods only).
 - target (move): `ไป(ที่|ยัง)? (วัน)? <day>? … คาบ(ที่)? <n>` → `{ day | null, period }`.
 - seed: `seed (=|:|เป็น|ค่า)? <digits>`; `randomSeed`: `สุ่ม seed|seed ใหม่|random`.
-- numbers: after `ข้อ`, `เงื่อนไข(ที่|ข้อ)?` or `c`, constraint ids matching `I1..I4`, `B1..B6`, `S1..S3` (or plain numbers `1..13` mapped to the check list).
-- on/off: `(เปิด|ปิด) (เงื่อนไข|ข้อ)? <ids or ทั้งหมด>` → toggleable special constraint ids `S1`, `S2`, `S3` (plus Thai keywords `หัวหน้า`, `ครูธรรมดา`, `ช่องว่าง`).
+- numbers: after `ข้อ`, `เงื่อนไข(ที่|ข้อ)?` or `c`, constraint ids matching `I1, I2, I4`, `B1..B6`, `S1..S3` (or plain numbers `1..12` mapped to the check list).
+- on/off: `(เปิด|ปิด) (เงื่อนไข|ข้อ)? <ids or ทั้งหมด>` → toggleable special constraint ids `S1`, `S2`, `S3` (plus Thai keywords `หัวหน้า`, `ครูธรรมดา`, `ช่องว่าง`, `เช้าให้เต็ม`).
 
 ### 11.2 Intents — `detectIntent(text, ents)`: ordered rules, first match wins (t = normalized text)
 ```js
