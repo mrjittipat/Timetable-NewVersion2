@@ -1,0 +1,11 @@
+node_modules/
+frontend/dist/
+frontend/.angular/
+backend/output/
+backend/data/*
+!backend/data/.gitkeep
+.claude/
+.env
+*.log
+.DS_Store
+Thumbs.db
