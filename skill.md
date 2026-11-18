@@ -419,8 +419,8 @@ CMD ["node", "src/server.js"]
 ```
 (If there is no logo, keep an empty `backend/assets/.gitkeep` so the COPY works.)
 
-`docker-compose.yml`: service `timetable`, `build: .`, image `timetable-ai:latest`, container
-`timetable-ai`, ports `3000:3000`, volumes `timetable-data:/app/backend/data` and
+`docker-compose.yml`: service `timetable`, `build: .`, image `timetable-pntc:latest`, container
+`timetable-pntc`, ports `80:3000`, volumes `timetable-data:/app/backend/data` and
 `timetable-output:/app/backend/output`, `restart: unless-stopped`, both volumes declared.
 
 `.dockerignore`: `**/node_modules`, `frontend/dist`, `frontend/.angular`, `backend/output`,
@@ -1377,8 +1377,8 @@ All test output lines must end with `PASS`.
   --configuration production`); stage 2 installs backend production deps; stage 3 copies `CSV/`, backend
   `src`, `fonts`, `assets`, `data`, `node_modules` and `frontend/dist`, runs as `node`, `TZ=Asia/Bangkok`,
   exposes 3000, healthcheck `GET /api/health`, `CMD node src/server.js` from `/app/backend`.
-- `docker-compose.yml` (Part D.5): service `timetable`, image `timetable-ai:latest`, container
-  `timetable-ai`, port `3000:3000`, volumes `timetable-data:/app/backend/data` and
+- `docker-compose.yml` (Part D.5): service `timetable`, image `timetable-pntc:latest`, container
+  `timetable-pntc`, port `80:3000`, volumes `timetable-data:/app/backend/data` and
   `timetable-output:/app/backend/output`, `restart: unless-stopped`.
 - `backend/data` must exist in the build context (create it with a `.gitkeep` if empty); the server copies
   the CSV seed files into it on first start.
