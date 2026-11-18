@@ -14,7 +14,7 @@ import { Icon } from '../../shared/icon';
       <section class="hero-col">
         <div class="hero-top">
           <span class="logo-tile">
-            <img src="logo.png" alt="วิทยาลัยเทคนิคพังงา" width="40" height="40" />
+            <img src="logo.png" alt="วิทยาลัยเทคนิคพังงา" width="48" height="48" />
           </span>
           <div>
             <strong>วิทยาลัยเทคนิคพังงา</strong>
@@ -132,11 +132,19 @@ import { Icon } from '../../shared/icon';
     .logo-tile {
       width: 48px;
       height: 48px;
-      border-radius: 12px;
-      background: #fff;
+      background: transparent;
+      border: none;
+      padding: 0;
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      flex-shrink: 0;
+    }
+    .logo-tile img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
     }
     .hero-top strong {
       display: block;

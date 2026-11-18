@@ -19,7 +19,7 @@ import { Icon } from '../shared/icon';
       <aside class="sidebar">
         <div class="brand">
           <span class="brand-tile">
-            <img src="logo.png" alt="วิทยาลัยเทคนิคพังงา" width="34" height="34" />
+            <img src="logo.png" alt="วิทยาลัยเทคนิคพังงา" width="40" height="40" />
           </span>
           <div>
             <strong>วิทยาลัยเทคนิคพังงา</strong>
@@ -170,12 +170,19 @@ import { Icon } from '../shared/icon';
     .brand-tile {
       width: 40px;
       height: 40px;
-      border-radius: 10px;
-      background: #fff;
+      background: transparent;
+      border: none;
+      padding: 0;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
+    }
+    .brand-tile img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
     }
     .brand strong {
       display: block;

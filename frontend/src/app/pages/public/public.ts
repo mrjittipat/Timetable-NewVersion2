@@ -13,7 +13,7 @@ import { TimetableSheet } from '../timetable/sheet';
   template: `
     <header class="pub-head">
       <div class="row">
-        <span class="pub-logo"><img src="logo.png" alt="วิทยาลัยเทคนิคพังงา" width="28" height="28" /></span>
+        <span class="pub-logo"><img src="logo.png" alt="วิทยาลัยเทคนิคพังงา" width="36" height="36" /></span>
         <div>
           <strong>{{ info()?.college || 'วิทยาลัยเทคนิคพังงา' }}</strong>
           @if (info(); as i) {
@@ -105,13 +105,21 @@ import { TimetableSheet } from '../timetable/sheet';
       gap: 12px;
     }
     .pub-logo {
-      width: 34px;
-      height: 34px;
-      border-radius: 8px;
-      background: #fff;
+      width: 36px;
+      height: 36px;
+      background: transparent;
+      border: none;
+      padding: 0;
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      flex-shrink: 0;
+    }
+    .pub-logo img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
     }
     .pub-bar {
       padding: 10px 14px;
