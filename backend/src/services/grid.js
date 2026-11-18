@@ -139,6 +139,7 @@ export function buildGrid(view, id, rows = [], ctx) {
       if (canMerge) {
         prev.span += 1;
       } else {
+        const groupNames = groups.map((gid) => ctx.groups.get(gid)?.group_name || gid);
         dayCells.push({
           start: p,
           span: 1,
@@ -148,6 +149,7 @@ export function buildGrid(view, id, rows = [], ctx) {
           teacher: teacherName,
           room,
           groups,
+          groupNames,
           clash,
         });
       }

@@ -19,7 +19,7 @@ import { Icon } from '../shared/icon';
       <aside class="sidebar">
         <div class="brand">
           <span class="brand-tile">
-            <img src="logo.png" alt="" width="28" height="28" />
+            <img src="logo.png" alt="วิทยาลัยเทคนิคพังงา" width="34" height="34" />
           </span>
           <div>
             <strong>วิทยาลัยเทคนิคพังงา</strong>

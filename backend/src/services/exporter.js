@@ -39,6 +39,52 @@ function whoText(view, span) {
   return `${groups} ${span.teacher || ''}`.trim();
 }
 
+function teacherGroupNames(span, ctx) {
+  if (Array.isArray(span.groupNames) && span.groupNames.length > 0) return span.groupNames;
+  return (span.groups || []).map((gid) => ctx?.groups?.get(gid)?.group_name || gid);
+}
+
+function wrapWords(doc, text, maxWidth) {
+  const words = String(text ?? '').trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 1) return words;
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (!cur || doc.widthOfString(next) <= maxWidth) {
+      cur = next;
+    } else {
+      lines.push(cur);
+      cur = w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+function teacherGroupLines(doc, span, ctx, maxWidth) {
+  const names = teacherGroupNames(span, ctx);
+  const out = [];
+  const singleSize = 7.5;
+  const wrappedSize = names.length > 1 ? 6.8 : 7.0;
+  for (const name of names) {
+    doc.font('th').fontSize(singleSize);
+    if (names.length === 1 && doc.widthOfString(name) <= maxWidth) {
+      out.push({ text: name, font: 'th', size: singleSize });
+      continue;
+    }
+    doc.font('th').fontSize(wrappedSize);
+    if (doc.widthOfString(name) <= maxWidth) {
+      out.push({ text: name, font: 'th', size: wrappedSize });
+    } else {
+      for (const part of wrapWords(doc, name, maxWidth)) {
+        out.push({ text: part, font: 'th', size: wrappedSize });
+      }
+    }
+  }
+  return out;
+}
+
 function clipText(doc, text, maxWidth) {
   const str = String(text ?? '');
   if (!str || maxWidth <= 4) return '';
@@ -281,11 +327,17 @@ export function exportPdf(rows, ctx, { view = 'group', id = '' } = {}) {
           doc.rect(sx, dy, sw, rowHeight).stroke();
 
           const lines = [{ text: sp.subject_id, font: 'th-bold', size: 9 }];
-          const who = whoText(v, sp);
-          if (who) lines.push({ text: who, font: 'th', size: 7.5 });
+          if (v === 'teacher') {
+            lines.push(...teacherGroupLines(doc, sp, ctx, sw - 6));
+          } else {
+            const who = whoText(v, sp);
+            if (who) lines.push({ text: who, font: 'th', size: 7.5 });
+          }
           if (v !== 'room' && sp.room) lines.push({ text: sp.room, font: 'th', size: 7.5 });
 
-          const blockH = (lines.length - 1) * 11 + 10;
+          const baseStep = lines.length >= 5 ? 9 : lines.length === 4 ? 10.5 : 11;
+          const lineStep = Math.min(baseStep, Math.max(7.5, (rowHeight - 10) / Math.max(1, lines.length)));
+          const blockH = (lines.length - 1) * lineStep + 10;
           let ly = dy + (rowHeight - blockH) / 2;
           for (const ln of lines) {
             doc.font(ln.font).fontSize(ln.size);
@@ -294,7 +346,7 @@ export function exportPdf(rows, ctx, { view = 'group', id = '' } = {}) {
               align: 'center',
               lineBreak: false,
             });
-            ly += 11;
+            ly += lineStep;
           }
         }
 

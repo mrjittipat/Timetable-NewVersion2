@@ -13,7 +13,7 @@ import { TimetableSheet } from '../timetable/sheet';
   template: `
     <header class="pub-head">
       <div class="row">
-        <span class="pub-logo"><img src="logo.png" alt="" width="24" height="24" /></span>
+        <span class="pub-logo"><img src="logo.png" alt="วิทยาลัยเทคนิคพังงา" width="28" height="28" /></span>
         <div>
           <strong>{{ info()?.college || 'วิทยาลัยเทคนิคพังงา' }}</strong>
           @if (info(); as i) {

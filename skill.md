@@ -941,8 +941,8 @@ Layout (W = page width − 48, x0 = 24):
 - **Day grid** starts 8 pt below. Day column 58 wide; period columns share the rest equally. Two header
   rows of 16: row 1 `เวลา` + `<start> - <end>` (regular 7.5); row 2 `วัน/คาบ` + period number (bold 9).
   Day rows: Monday–Friday from the data, height `min(70, (pageH − 24 − 54 − 14 − gridTop) / days)`;
-  day label bold 11. Spans are drawn as one merged rectangle; the non-empty lines (id bold 9, who regular 7.5,
-  room regular 7.5) are stacked 11 pt apart and centred vertically, each clipped to the cell width. Homeroom column (P1) shows `Homeroom` (bold 8) and break period (P6) shows `พัก` (bold 11).
+  day label bold 11. Spans are drawn as one merged rectangle; the non-empty lines (id bold 9, who/group regular 7.5,
+  room regular 7.5 — in `teacher` view showing full `group_name` stacked top/bottom when 2+ groups are taught together, wrapping on word spaces when narrow) are stacked and centred vertically, each clipped to the cell width. Homeroom column (P1) shows `Homeroom` (bold 8) and break period (P6) shows `พัก` (bold 11).
 - **Signatures** 16 pt below the grid, 4 equal columns, regular 10.5: `ลงชื่อ ......…`, `( name )`, role.
 - Footer bottom-right (7 pt, grey #444): `พิมพ์เมื่อ <th-TH date, Asia/Bangkok>`.
 - No entities → one page `ไม่พบข้อมูลตาราง`.
