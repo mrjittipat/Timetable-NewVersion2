@@ -67,16 +67,21 @@ export function buildBlocks(ctx) {
   for (const cohort of ctx.jointCohorts) {
     const subIds = [...cohort.subjectsByGroup.values()];
     const rooms = ctx.roomsFor(subIds[0]);
+    const cohortTeachers = cohort.teacherIds?.length ? cohort.teacherIds : [cohort.teacherId];
     for (const [gid, sid] of cohort.subjectsByGroup) handled.add(`${gid}|${sid}`);
     addCourse({
       subjectId: subIds.join('/'),
       groups: cohort.groups,
       hours: 2,
-      teachers: [cohort.teacherId],
+      teachers: cohortTeachers,
       rooms,
       kind: 'activity',
       subByGroup: cohort.subjectsByGroup,
-      fixed: { day: ctx.thuDayIdx, slots: cohort.slots, teacher: cohort.teacherId },
+      fixed: {
+        day: ctx.thuDayIdx,
+        slots: cohort.slots,
+        teacher: cohortTeachers.length === 1 ? cohortTeachers[0] : null,
+      },
     });
   }
 
@@ -143,6 +148,15 @@ class Board {
 
     // Precompute integer indices on courses/blocks/daySlots
     this.daySlotIdx = ctx.daySlots.map((arr) => arr.map((id) => this.sIdx.get(id)));
+    this.daySlices = this.daySlotIdx.map((ds) => {
+      const byStart = [];
+      for (let i = 0; i < ds.length; i++) {
+        const byLen = [];
+        for (let l = 1; l <= ds.length - i; l++) byLen[l] = ds.slice(i, i + l);
+        byStart[i] = byLen;
+      }
+      return byStart;
+    });
     this.slotPeriods = this.slotList.map((id) => ctx.slotsById.get(id).period);
     this.slotPeriodMap = new Map(this.slotList.map((id, i) => [id, this.slotPeriods[i]]));
     this.breakPeriod = Number(ctx.params.breakPeriod) || 6;
@@ -275,7 +289,7 @@ class Board {
         const ds = this.daySlotIdx[d];
         if (cur < mCount && cur + b.len > mCount) continue;
         if (cur + b.len > ds.length || cur + b.len > this.maxPerDay) continue;
-        positions.push({ day: d, slotIdxs: ds.slice(cur, cur + b.len), cur });
+        positions.push({ day: d, slotIdxs: this.daySlices[d]?.[cur]?.[b.len] || ds.slice(cur, cur + b.len), cur });
       }
     } else {
       const usedDays = c.blockIds.length <= this.D ? new Set() : null;
@@ -289,7 +303,7 @@ class Board {
         if (usedDays && usedDays.has(d)) continue;
         const ds = this.daySlotIdx[d];
         for (let i = 0; i <= ds.length - b.len; i++) {
-          positions.push({ day: d, slotIdxs: ds.slice(i, i + b.len), cur: i });
+          positions.push({ day: d, slotIdxs: this.daySlices[d]?.[i]?.[b.len] || ds.slice(i, i + b.len), cur: i });
         }
       }
     }
@@ -529,6 +543,53 @@ class Board {
       if (!this.gIsItPvs[g]) needNonItPvs += m;
     }
     return needAll <= freeAllM && needNonItPvs <= freeNonWM;
+  }
+
+  canStillFitS3(g) {
+    const bids = this.groupBlockIdxs[g];
+    let remSum = 0;
+    let rem1 = 0;
+    let maxLen = 0;
+    for (let i = 0; i < bids.length; i++) {
+      const bid = bids[i];
+      if (!this.place[bid]) {
+        const b = this.blocks[bid];
+        if (b.fixed) return true;
+        remSum += b.len;
+        if (b.len === 1) rem1++;
+        if (b.len > maxLen) maxLen = b.len;
+      }
+    }
+    if (remSum === 0) return true;
+    // Only lengths 1 and 2 exist under S3 when maxBlock >= 2; odd remainders strictly require len=1
+    const strictParity = maxLen <= 2;
+    let evenCap = 0;
+    const oddUnlocks = [];
+    for (let d = 0; d < this.D; d++) {
+      const cur = this.dayLoad[g * this.D + d];
+      const mCount = this.morningCount[d] ?? 4;
+      const dMax = Math.min(this.maxPerDay, this.daySlotIdx[d].length);
+      if (cur >= mCount) {
+        const rem = Math.max(0, dMax - cur);
+        evenCap += strictParity && rem1 === 0 ? rem - (rem & 1) : rem;
+      } else {
+        const mRem = mCount - cur;
+        const aft = Math.max(0, dMax - mCount);
+        if (strictParity && (mRem & 1) === 1) {
+          evenCap += mRem - 1;
+          oddUnlocks.push(1 + aft);
+        } else {
+          evenCap += mRem + aft;
+        }
+      }
+    }
+    let totalCap = evenCap;
+    if (oddUnlocks.length > 0 && rem1 > 0) {
+      oddUnlocks.sort((a, b) => b - a);
+      const take = Math.min(rem1, oddUnlocks.length);
+      for (let i = 0; i < take; i++) totalCap += oddUnlocks[i];
+    }
+    return remSum <= totalCap;
   }
 
   canStillFit(g) {
@@ -808,8 +869,8 @@ export function solve(data, config = {}, { onProgress = () => {} } = {}) {
 
   onProgress(`เริ่มค้นหา ${blocks.length} บล็อก จาก ${courses.length} รายวิชา-กลุ่ม`);
   const board = new Board(ctx, courses, blocks);
-  const NODE_LIMIT = 4000;
-  const MAX_RESTARTS = 250;
+  const NODE_LIMIT = 1500;
+  const MAX_RESTARTS = 1000;
   const failCount = new Int32Array(blocks.length);
 
   let found = false;
@@ -845,8 +906,9 @@ export function solve(data, config = {}, { onProgress = () => {} } = {}) {
         }
       }
 
-      const noise = board.checkS3 ? 1.5 : 2;
-      const sliceLimit = board.checkS3 ? 12 : 8;
+      const baseNoise = board.checkS3 ? 1.5 : 2;
+      const noise = restarts >= 5 ? baseNoise + (restarts % 5) * 3 : baseNoise;
+      const sliceLimit = 8;
       const ranked = bestOpts
         .map((o) => ({ o, k: board.score(best, o) + rng() * noise }))
         .sort((a, b) => a.k - b.k)
@@ -855,11 +917,20 @@ export function solve(data, config = {}, { onProgress = () => {} } = {}) {
       for (const { o } of ranked) {
         board.assign(best, o);
         let ok = board.teacherCapacityOk() && board.morningBudgetOk();
-        if (ok && !board.checkS3) {
-          for (const g of best.course.gIdxs) {
-            if (!board.canStillFit(g)) {
-              ok = false;
-              break;
+        if (ok) {
+          if (board.checkS3) {
+            for (const g of best.course.gIdxs) {
+              if (!board.canStillFitS3(g)) {
+                ok = false;
+                break;
+              }
+            }
+          } else {
+            for (const g of best.course.gIdxs) {
+              if (!board.canStillFit(g)) {
+                ok = false;
+                break;
+              }
             }
           }
         }

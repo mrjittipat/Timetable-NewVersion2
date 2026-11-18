@@ -253,6 +253,20 @@ export function buildContext(data = {}, config = {}) {
   }
 
   // Rule 2: Year-1 PVC Scout cohort grouped by shared Scout subject_id
+  const reservedThuTeachers = new Set();
+  if (wId) reservedThuTeachers.add(wId);
+  if (lId) reservedThuTeachers.add(lId);
+  for (const gid of groups.keys()) {
+    if (assignedToCohort.has(gid) || !actByGroup.has(gid)) continue;
+    const m = groupMeta(gid);
+    if (m.isYear1Pvc && actByGroup.get(gid).some(isScout)) continue;
+    const actSid = actByGroup.get(gid)[0];
+    const eligibleAct = (teachersBySubject.get(actSid) || []).filter((id) => !isWutthiwong(id) || m.isItPvs);
+    const adv = advisorTeacherId(gid);
+    if (adv && eligibleAct.includes(adv)) reservedThuTeachers.add(adv);
+    else if (eligibleAct.length === 1) reservedThuTeachers.add(eligibleAct[0]);
+  }
+
   const scoutGroupsBySub = new Map();
   for (const gid of groups.keys()) {
     if (assignedToCohort.has(gid)) continue;
@@ -265,21 +279,27 @@ export function buildContext(data = {}, config = {}) {
   }
   for (const [scoutSid, gids] of scoutGroupsBySub) {
     const cands = teachersBySubject.get(scoutSid) || [];
-    const tid = cands.find((id) => !isWutthiwong(id)) || cands[0] || advisorTeacherId(gids[0]);
+    const nonW = cands.filter((id) => !isWutthiwong(id));
+    const pool = nonW.length > 0 ? nonW : cands.length > 0 ? cands : [advisorTeacherId(gids[0])].filter(Boolean);
+    const teacherIds = [
+      ...pool.filter((id) => !reservedThuTeachers.has(id)),
+      ...pool.filter((id) => reservedThuTeachers.has(id)),
+    ];
+    const tid = teacherIds[0];
     if (tid && gids.length > 1 && thuActivitySlots.length === 2) {
       const subjectsByGroup = new Map();
       for (const gid of gids) {
         subjectsByGroup.set(gid, scoutSid);
         assignedToCohort.add(gid);
       }
-      jointCohorts.push({ id: `C_SCOUT_${scoutSid}`, teacherId: tid, groups: gids, slots: thuActivitySlots, subjectsByGroup });
+      jointCohorts.push({ id: `C_SCOUT_${scoutSid}`, teacherId: tid, teacherIds, groups: gids, slots: thuActivitySlots, subjectsByGroup });
     }
   }
 
   function isJointSlotAllowed(slotId, groupIds, teacherId) {
     if (!thuActivitySlots.includes(slotId)) return false;
     return jointCohorts.some(
-      (c) => c.teacherId === teacherId && groupIds.every((gid) => c.groups.includes(gid))
+      (c) => (c.teacherIds ? c.teacherIds.includes(teacherId) : c.teacherId === teacherId) && groupIds.every((gid) => c.groups.includes(gid))
     );
   }
 

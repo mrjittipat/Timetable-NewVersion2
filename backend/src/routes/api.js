@@ -397,7 +397,14 @@ api.post(
     const imported = [];
     const skipped = [];
 
-    for (const file of files) {
+    // Process CSVs before multi-sheet XLSX so updated student_group/teacher rows are visible during workbook import
+    const orderedFiles = [...files].sort((a, b) => {
+      const aX = /\.xlsx$/i.test(decodeFilename(a.originalname)) ? 1 : 0;
+      const bX = /\.xlsx$/i.test(decodeFilename(b.originalname)) ? 1 : 0;
+      return aX - bX;
+    });
+
+    for (const file of orderedFiles) {
       const name = decodeFilename(file.originalname);
       if (/\.xlsx$/i.test(name)) {
         const sheets = await parseXlsx(file.buffer);
