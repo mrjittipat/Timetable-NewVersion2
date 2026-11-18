@@ -628,7 +628,7 @@ export const DEFAULT_CONFIG = {
     breakPeriod: 6,
     maxPerDay: 8,
     maxBlock: 4,
-    latestPreferredPeriod: 9,
+    latestPreferredPeriod: 10,
     leaderMinPeriods: 20,
     leaderMaxPeriods: 30,
     teacherMinPeriods: 25,
