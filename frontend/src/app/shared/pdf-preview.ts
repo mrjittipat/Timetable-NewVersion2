@@ -8,7 +8,7 @@ import { Icon } from './icon';
   imports: [Icon],
   template: `
     @if (url(); as raw) {
-      <div class="scrim" (click)="closed.emit()">
+      <div class="scrim" (click)="close()">
         <div class="pdf-modal" (click)="$event.stopPropagation()">
           <div class="dialog-head">
             <div class="row">
@@ -24,7 +24,7 @@ import { Icon } from './icon';
                 <app-icon name="download" [size]="16" />
                 ดาวน์โหลด PDF
               </a>
-              <button type="button" class="btn icon" (click)="closed.emit()" aria-label="ปิด">
+              <button type="button" class="btn icon" (click)="close()" aria-label="ปิด">
                 <app-icon name="x" [size]="18" />
               </button>
             </div>
@@ -36,7 +36,7 @@ import { Icon } from './icon';
                 <span>กำลังสร้างเอกสาร…</span>
               </div>
             }
-            <iframe #frame [src]="safeUrl()" (load)="loading.set(false)" title="ตัวอย่าง PDF"></iframe>
+            <iframe #frame [src]="safeUrl()" (load)="onFrameLoad()" title="ตัวอย่าง PDF"></iframe>
           </div>
         </div>
       </div>
@@ -80,14 +80,27 @@ export class PdfPreview {
   private readonly sanitizer = inject(DomSanitizer);
   readonly url = input<string | null>(null);
   readonly closed = output<void>();
-  readonly loading = signal(true);
+  readonly loadedUrl = signal<string | null>(null);
   readonly frame = viewChild<ElementRef<HTMLIFrameElement>>('frame');
+
+  readonly loading = computed(() => {
+    const u = this.url();
+    return Boolean(u && this.loadedUrl() !== u);
+  });
 
   readonly safeUrl = computed(() => {
     const u = this.url();
-    this.loading.set(true);
     return u ? this.sanitizer.bypassSecurityTrustResourceUrl(u) : null;
   });
+
+  onFrameLoad() {
+    this.loadedUrl.set(this.url());
+  }
+
+  close() {
+    this.loadedUrl.set(null);
+    this.closed.emit();
+  }
 
   readonly downloadUrl = computed(() => {
     const u = this.url() || '';
