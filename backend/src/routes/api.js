@@ -12,6 +12,7 @@ import { buildGrid, entitiesFor, VIEWS } from '../services/grid.js';
 import { moveSpan, editSpan } from '../services/editor.js';
 import { timetableStats } from '../services/stats.js';
 import { exportCsv, exportPdf, exportXlsx, exportQrPdf } from '../services/exporter.js';
+import { reply } from '../services/chatbot/bot.js';
 import * as auth from '../services/auth.js';
 
 const api = Router();
@@ -640,6 +641,68 @@ api.get(
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="qr-${view}.pdf"`);
     res.send(buf);
+  })
+);
+
+// --- Chatbot ---
+api.post('/chat', (req, res) => {
+  const message = String(req.body?.message || '').slice(0, 500);
+  const chatCtx = req.body?.context || {};
+  const data = store.getData();
+  const config = loadConfig();
+  const ctx = buildContext(data, config);
+  const tt = store.getTimetable();
+  const validation = tt?.rows?.length ? validate(tt.rows, data, config, ctx) : null;
+  res.json(reply(message, chatCtx, { data, config, ctx, rows: tt?.rows || [], meta: tt?.meta || null, validation }));
+});
+
+api.post(
+  '/chat/action',
+  wrap(async (req, res) => {
+    const { kind, payload = {} } = req.body || {};
+    if (kind === 'solve') {
+      const r = await runSolve(payload);
+      return res.json({
+        ok: r.status === 'success',
+        text: r.status === 'success' ? `จัดตารางสำเร็จ (${r.rows.length} แถว, Seed ${r.stats.seed}, ${r.stats.seconds} วินาที)` : `${r.message}: ${(r.errors || []).join('; ')}`,
+        refresh: r.status === 'success',
+      });
+    }
+    if (kind === 'best_seed') {
+      const r = await runBest(payload);
+      return res.json({
+        ok: r.status === 'success',
+        text: r.status === 'success' ? `${r.message} (Soft Cost ${r.best.softCost})` : r.message,
+        refresh: r.status === 'success',
+      });
+    }
+    if (kind === 'diagnose') {
+      const cfg = loadConfig();
+      const { result } = await runWorker(store.getData(), cfg, 'diagnose', { probeSeconds: 4 });
+      return res.json({
+        ok: result.feasible,
+        text: `${result.feasible ? 'จัดตารางได้สำเร็จ' : 'พบปัญหาในเงื่อนไข'}: ${(result.suggestions || []).join(' ')}`,
+        refresh: false,
+      });
+    }
+    if (kind === 'save_seed') {
+      const list = addSeed(payload);
+      return res.json({ ok: true, text: `บันทึก Seed ${payload.seed} เรียบร้อยแล้ว (รวม ${list.length} รายการ)`, refresh: true });
+    }
+    if (kind === 'move') {
+      const tt = store.getTimetable();
+      if (!tt?.rows?.length) throw store.httpError(404, 'ยังไม่มีตารางเรียน');
+      const ctx = context();
+      const nextRows = moveSpan(tt.rows, ctx, payload);
+      const validation = validate(nextRows, store.getData(), loadConfig(), ctx);
+      store.setTimetable(nextRows, { ...(tt.meta || {}), validationPassed: validation.passed, source: 'manual' });
+      return res.json({
+        ok: true,
+        text: `ย้ายคาบเรียนสำเร็จ (ผลตรวจ: ${validation.passed ? 'ผ่านทุกเงื่อนไข' : 'มีเงื่อนไขไม่ผ่าน'})`,
+        refresh: true,
+      });
+    }
+    throw store.httpError(400, `ไม่รู้จักคำสั่ง ${kind}`);
   })
 );
 
