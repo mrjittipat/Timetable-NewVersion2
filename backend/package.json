@@ -1,0 +1,19 @@
+{
+  "name": "timetable-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node test/validator.test.js && node test/chatbot.test.js && node test/run-solver.js --all",
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "csv-parse": "^6.1.0",
+    "csv-stringify": "^6.6.0",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "multer": "^2.0.0",
+    "pdfkit": "^0.16.0",
+    "qrcode": "^1.5.4"
+  }
+}
